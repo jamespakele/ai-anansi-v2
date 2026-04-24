@@ -1,0 +1,15 @@
+/target
+Cargo.lock
+*.db
+*.db-shm
+*.db-wal
+*.tmp
+
+# bmad framework & agent tooling
+/.agent
+/.agents
+/.claude
+/.gemini
+/.opencode
+/_bmad
+/_bmad-output

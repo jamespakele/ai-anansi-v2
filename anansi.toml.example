@@ -1,0 +1,32 @@
+[paths]
+web_dir = "web"
+rules_dir = "%Rules"
+templates_dir = "templates"
+db_file = "web.db"
+
+[llm]
+backend = "ollama"
+url = "http://localhost:11434"
+model = "qwen2.5:14b"
+n_ctx = 16384
+timeout_s = 600
+
+[llm.decomposition]
+temperature = 0.2
+max_tokens = 4096
+json_mode = false
+
+[llm.extraction]
+temperature = 0.2
+max_tokens = 4096
+json_mode = true
+
+[llm.synthesis]
+temperature = 0.5
+max_tokens = 8192
+json_mode = false
+
+[server]
+mcp_port = 3738
+host = "0.0.0.0"
+read_only = false
