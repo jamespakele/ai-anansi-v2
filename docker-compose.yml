@@ -4,7 +4,7 @@ services:
     ports:
       - "3738:3738"
     volumes:
-      - ./anansi:/anansi
+      - ./vault:/vault
     environment:
       - ANANSI_OLLAMA_URL=${ANANSI_OLLAMA_URL:-http://host.docker.internal:11434}
       - ANANSI_OLLAMA_MODEL=${ANANSI_OLLAMA_MODEL:-qwen2.5:14b}

@@ -91,8 +91,8 @@ async fn main() -> Result<()> {
 // ---------------------------------------------------------------------------
 
 async fn cmd_init(root: &Path) -> Result<()> {
-    // Create directory tree
-    let dirs = ["web", "%Rules", "templates"];
+    // Create directory tree under anansi/ subdirectory
+    let dirs = ["anansi", "anansi/web", "anansi/%Rules", "anansi/templates"];
     for dir in &dirs {
         let p = root.join(dir);
         std::fs::create_dir_all(&p)
@@ -119,7 +119,7 @@ async fn cmd_init(root: &Path) -> Result<()> {
         ("topic.md", TMPL_TOPIC),
     ];
     for (name, content) in templates {
-        let dest = root.join("templates").join(name);
+        let dest = root.join("anansi").join("templates").join(name);
         if !dest.exists() {
             std::fs::write(&dest, content)
                 .with_context(|| format!("writing template {}", dest.display()))?;
@@ -134,15 +134,15 @@ async fn cmd_init(root: &Path) -> Result<()> {
         ("%Template-Schema.md", RULE_TEMPLATE_SCHEMA),
     ];
     for (name, content) in rules {
-        let dest = root.join("%Rules").join(name);
+        let dest = root.join("anansi").join("%Rules").join(name);
         if !dest.exists() {
             std::fs::write(&dest, content)
                 .with_context(|| format!("writing rule {}", dest.display()))?;
         }
     }
 
-    // Copy anansi.toml.example → anansi.toml (skip if already present)
-    let toml_dest = root.join("anansi.toml");
+    // Copy anansi.toml.example → anansi/anansi.toml (skip if already present)
+    let toml_dest = root.join("anansi").join("anansi.toml");
     if !toml_dest.exists() {
         std::fs::write(&toml_dest, ANANSI_TOML_EXAMPLE)
             .with_context(|| format!("writing {}", toml_dest.display()))?;

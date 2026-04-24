@@ -70,3 +70,16 @@ The runtime image has no `USER` directive; the `anansi2` process runs as root. C
 
 **`anansi_search` empty query string returns all rows**
 `%{query}%` with an empty string becomes `%%`, which matches every row. No lower bound on query length is enforced. Add a minimum length check (e.g., ≥1 character) or return an empty result for blank queries.
+
+---
+
+## From Build-04 Review
+
+**Integration test hardcodes pre-Build-04 flat layout**
+`tests/pipeline_integration.rs` constructs `Vault::new(root, Path::new("web"))` and asserts the outline at `root/web/` — the old flat structure. The test does not exercise the new `anansi/web/` layout and would not catch regressions in the `anansi/` subdir path resolution. Update the integration test's `make_context()` to use the new default paths (`"anansi/web"` etc.) or derive paths from a `Config` loaded from a temp vault initialised by `cmd_init`.
+
+**Docker volume rename is a data-loss footgun for existing deployments**
+Build-04 renamed `VOLUME ["/anansi"]` to `VOLUME ["/vault"]` and `./anansi:/anansi` to `./vault:/vault` in docker-compose.yml. Users upgrading an existing Docker deployment will silently start writing to a fresh `/vault` volume while their data remains at `./anansi` — no error, no warning. Add an upgrade note to README.md and/or a startup check that warns if `/anansi` exists but `/vault/anansi/anansi.toml` does not.
+
+**`entity_type` value used directly in atomic note filenames without sanitization**
+`vault::atomic_note_path` uses `entity_type` directly as the file extension (`{slug}.{entity_type}.md`). Entity types that come from LLM-generated Pass 3 JSON (`EntityRef.entity_type`, pipeline.rs:369) are not validated against the template registry or restricted to the `[A-Za-z_?]+` character class that the TOC text parser enforces. A crafted or hallucinated `entity_type` containing `/` passed directly to `atomic_note_path` or `wikilink` could write outside `vault.web` or produce malformed wikilinks. Add validation that `entity_type` matches `^[A-Za-z_]+$` before constructing typed paths.

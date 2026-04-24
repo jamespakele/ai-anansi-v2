@@ -37,11 +37,8 @@ impl Vault {
 
     pub fn atomic_note_path(&self, entity_type: &str, name: &str) -> PathBuf {
         let s = slug_name(name);
-        let filename = match entity_type {
-            "note" => format!("{s}.md"),
-            _ => format!("-{s}.md"),
-        };
-        self.web.join(filename)
+        let ext = if entity_type.is_empty() { "note" } else { entity_type };
+        self.web.join(format!("{s}.{ext}.md"))
     }
 
     pub fn source_bound_path(&self, toc_address: &str, name: &str, source_slug: &str) -> PathBuf {
@@ -52,11 +49,8 @@ impl Vault {
 
     pub fn wikilink(&self, entity_type: &str, name: &str) -> String {
         let s = slug_name(name);
-        let prefix = match entity_type {
-            "note" => "",
-            _ => "-",
-        };
-        format!("[[{prefix}{s}|{name}]]")
+        let ext = if entity_type.is_empty() { "note" } else { entity_type };
+        format!("[[{s}.{ext}|{name}]]")
     }
 }
 
@@ -84,28 +78,34 @@ mod tests {
             PathBuf::from("/anansi/web/digital-futures-workshop-2026-01-30.outline.md")
         );
 
-        // pure-atomic: person gets - prefix
+        // pure-atomic: person gets .person.md
         assert_eq!(
             v.atomic_note_path("person", "Ian Kitajima"),
-            PathBuf::from("/anansi/web/-ian-kitajima.md")
+            PathBuf::from("/anansi/web/ian-kitajima.person.md")
         );
 
-        // pure-atomic: organization gets - prefix
+        // pure-atomic: organization gets .organization.md
         assert_eq!(
             v.atomic_note_path("organization", "PICHTR"),
-            PathBuf::from("/anansi/web/-pichtr.md")
+            PathBuf::from("/anansi/web/pichtr.organization.md")
         );
 
-        // pure-atomic: concept gets - prefix
+        // pure-atomic: concept gets .concept.md
         assert_eq!(
             v.atomic_note_path("concept", "Sovereign AI"),
-            PathBuf::from("/anansi/web/-sovereign-ai.md")
+            PathBuf::from("/anansi/web/sovereign-ai.concept.md")
         );
 
-        // note type: no - prefix
+        // note type gets .note.md
         assert_eq!(
             v.atomic_note_path("note", "some note"),
-            PathBuf::from("/anansi/web/some-note.md")
+            PathBuf::from("/anansi/web/some-note.note.md")
+        );
+
+        // empty entity_type falls back to .note.md
+        assert_eq!(
+            v.atomic_note_path("", "fallback note"),
+            PathBuf::from("/anansi/web/fallback-note.note.md")
         );
 
         // source-bound: dots in address become hyphens
@@ -119,13 +119,16 @@ mod tests {
     fn wikilink_formats() {
         let v = vault();
 
-        // person → - prefix
-        assert_eq!(v.wikilink("person", "Ian Kitajima"), "[[-ian-kitajima|Ian Kitajima]]");
+        // person → .person extension
+        assert_eq!(v.wikilink("person", "Ian Kitajima"), "[[ian-kitajima.person|Ian Kitajima]]");
 
-        // concept → - prefix
-        assert_eq!(v.wikilink("concept", "Sovereign AI"), "[[-sovereign-ai|Sovereign AI]]");
+        // concept → .concept extension
+        assert_eq!(v.wikilink("concept", "Sovereign AI"), "[[sovereign-ai.concept|Sovereign AI]]");
 
-        // note → no prefix
-        assert_eq!(v.wikilink("note", "some note"), "[[some-note|some note]]");
+        // note → .note extension
+        assert_eq!(v.wikilink("note", "some note"), "[[some-note.note|some note]]");
+
+        // empty → .note fallback
+        assert_eq!(v.wikilink("", "fallback"), "[[fallback.note|fallback]]");
     }
 }

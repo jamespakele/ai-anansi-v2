@@ -1,8 +1,8 @@
 [paths]
-web_dir = "web"
-rules_dir = "%Rules"
-templates_dir = "templates"
-db_file = "web.db"
+web_dir = "anansi/web"
+rules_dir = "anansi/%Rules"
+templates_dir = "anansi/templates"
+db_file = "anansi/web.db"
 
 [llm]
 backend = "ollama"

@@ -22,10 +22,10 @@ pub struct PathsConfig {
     pub db_file: PathBuf,
 }
 
-fn default_web_dir() -> PathBuf { PathBuf::from("web") }
-fn default_rules_dir() -> PathBuf { PathBuf::from("%Rules") }
-fn default_templates_dir() -> PathBuf { PathBuf::from("templates") }
-fn default_db_file() -> PathBuf { PathBuf::from("web.db") }
+fn default_web_dir() -> PathBuf { PathBuf::from("anansi/web") }
+fn default_rules_dir() -> PathBuf { PathBuf::from("anansi/%Rules") }
+fn default_templates_dir() -> PathBuf { PathBuf::from("anansi/templates") }
+fn default_db_file() -> PathBuf { PathBuf::from("anansi/web.db") }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LlmConfig {
@@ -91,7 +91,7 @@ fn default_host() -> String { "0.0.0.0".to_string() }
 
 impl Config {
     pub fn load(anansi_root: &Path) -> Result<Self> {
-        let path = anansi_root.join("anansi.toml");
+        let path = anansi_root.join("anansi").join("anansi.toml");
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("reading config at {}", path.display()))?;
         let mut config: Config = toml::from_str(&text)?;
@@ -136,7 +136,9 @@ mod tests {
     #[test]
     fn load_example_config() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("anansi.toml");
+        let anansi_dir = dir.path().join("anansi");
+        std::fs::create_dir_all(&anansi_dir).unwrap();
+        let config_path = anansi_dir.join("anansi.toml");
         let mut f = std::fs::File::create(&config_path).unwrap();
         write!(f, "{}", include_str!("../anansi.toml.example")).unwrap();
         let cfg = Config::load(dir.path()).unwrap();
