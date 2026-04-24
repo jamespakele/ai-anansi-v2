@@ -1,0 +1,5 @@
+target/
+.git/
+anansi/
+*.md
+!README.md

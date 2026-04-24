@@ -51,3 +51,22 @@ The query joins `source_contributions` and `notes` without `LIMIT 1`. If the UNI
 
 **`render_roster_section` leaves unreplaced `{placeholder}` patterns silently**
 If a row's `HashMap` is missing a key referenced in `row_format`, the `{placeholder}` text is emitted verbatim. Log a warning or replace with `[not mentioned]` to surface template mismatches during development.
+
+---
+
+## From Build-03 Review
+
+**`tool_ingest` with `source_path` leaks filesystem path in error message**
+When `pipeline::ingest` fails on a caller-supplied `source_path`, the full server-side path is included in the JSON-RPC error string returned to the client. For a locally-hosted single-user instance this is fine, but sanitize before any multi-user or network-exposed deployment.
+
+**`tool_get` silently omits file content when `file_path` is relative and CWD differs from vault root**
+`tokio::fs::read_to_string(&note.file_path)` uses the process working directory if `file_path` is a relative path. If the binary is started from a directory other than the vault root, the read silently fails (`.ok()` swallows the error) and the response omits the `content` field with no indication to the caller. Normalize `file_path` to absolute at note-write time, or join against `anansi_root` at read time.
+
+**`cmd_init` leaves partially-initialized vault on TOML parse error**
+`cmd_init` writes directories and seed files before calling `Config::load`. If the embedded `anansi.toml.example` is malformed TOML, `Config::load` errors after the filesystem is partially modified (dirs + templates exist, DB absent). Add a cleanup or an early validation step.
+
+**Dockerfile runs as root**
+The runtime image has no `USER` directive; the `anansi2` process runs as root. Create a non-root user (`adduser --system anansi`) and switch with `USER anansi` before `ENTRYPOINT` to reduce blast radius from any code-execution vulnerability.
+
+**`anansi_search` empty query string returns all rows**
+`%{query}%` with an empty string becomes `%%`, which matches every row. No lower bound on query length is enforced. Add a minimum length check (e.g., ≥1 character) or return an empty result for blank queries.

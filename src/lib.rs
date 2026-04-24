@@ -8,3 +8,4 @@ pub mod prompt;
 pub mod writer;
 pub mod merger;
 pub mod pipeline;
+pub mod mcp;

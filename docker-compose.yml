@@ -1,0 +1,17 @@
+services:
+  anansi:
+    build: .
+    ports:
+      - "3738:3738"
+    volumes:
+      - ./anansi:/anansi
+    environment:
+      - ANANSI_OLLAMA_URL=${ANANSI_OLLAMA_URL:-http://host.docker.internal:11434}
+      - ANANSI_OLLAMA_MODEL=${ANANSI_OLLAMA_MODEL:-qwen2.5:14b}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:3738/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

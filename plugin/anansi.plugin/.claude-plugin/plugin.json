@@ -1,0 +1,9 @@
+{
+  "name": "anansi-toc",
+  "version": "0.1.0",
+  "description": "Produce enriched TOCs for anansi source documents using the Claude model, enabling high-quality preprocessing before daemon ingestion.",
+  "author": {
+    "name": "Pakele.ai"
+  },
+  "keywords": ["anansi", "knowledge-vault", "zettelkasten", "toc-preprocessing"]
+}

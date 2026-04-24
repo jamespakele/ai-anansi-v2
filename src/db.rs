@@ -7,6 +7,8 @@ use std::path::Path;
 
 pub type DbPool = SqlitePool;
 
+pub const MANUAL_SOURCE_ID: &str = "00000000-0000-0000-0000-000000000000";
+
 pub async fn open_and_migrate(db_path: &Path) -> Result<DbPool> {
     let opts = SqliteConnectOptions::new()
         .filename(db_path)
@@ -16,7 +18,20 @@ pub async fn open_and_migrate(db_path: &Path) -> Result<DbPool> {
 
     let pool = SqlitePool::connect_with(opts).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
+    seed_manual_source(&pool).await?;
     Ok(pool)
+}
+
+async fn seed_manual_source(pool: &DbPool) -> Result<()> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO sources (id, source_path, title, source_type, content_hash, ingested_at) \
+         VALUES (?, 'manual', 'Manual edges', 'manual', 'manual', ?)"
+    )
+    .bind(MANUAL_SOURCE_ID)
+    .bind(chrono::Utc::now().to_rfc3339())
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 pub fn match_key(name: &str, entity_type: &str) -> String {
@@ -292,6 +307,41 @@ pub async fn edges_for_note(pool: &DbPool, note_id: &str) -> Result<Vec<EdgeReco
             created_at: row.get("created_at"),
         })
         .collect())
+}
+
+pub async fn search_notes(pool: &DbPool, query: &str, limit: i64) -> Result<Vec<NoteRecord>> {
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let pattern = format!("%{escaped}%");
+    let rows = sqlx::query(
+        "SELECT * FROM notes \
+         WHERE name LIKE ? ESCAPE '\\' OR summary_1 LIKE ? ESCAPE '\\' OR summary_5 LIKE ? ESCAPE '\\' \
+         ORDER BY updated_at DESC \
+         LIMIT ?",
+    )
+    .bind(&pattern)
+    .bind(&pattern)
+    .bind(&pattern)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.into_iter().map(|row| NoteRecord {
+        id: row.get("id"),
+        entity_type: row.get("entity_type"),
+        name: row.get("name"),
+        match_key: row.get("match_key"),
+        file_path: row.get("file_path"),
+        summary_1: row.get("summary_1"),
+        summary_5: row.get("summary_5"),
+        merge_category: row.get("merge_category"),
+        created_from: row.get("created_from"),
+        source_count: row.get("source_count"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }).collect())
 }
 
 pub async fn find_contribution_by_source_toc(
