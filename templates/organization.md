@@ -27,6 +27,10 @@ identity_fields:
   summary:
     type: string
     description: "One-paragraph source-agnostic description"
+  content:
+    type: string
+    format: prose
+    description: "Source-agnostic 2–4 paragraph profile: what this organization does, its mission, significance, structure, and anything notable or non-obvious"
 
 roster_sections:
   people:
@@ -65,6 +69,10 @@ description: Primary field of operation or focus area
 field: summary
 description: One-paragraph source-agnostic description
 %%
+%%
+field: content
+description: Write 2–4 paragraphs profiling this organization. Cover what it does, its mission and significance, how it operates, and anything notable or non-obvious. Do not reference this specific document — write as a durable, source-agnostic knowledge entry.
+%%
 # {{name}}
 
 ## Identity
@@ -74,5 +82,8 @@ description: One-paragraph source-agnostic description
 
 ## Summary
 {{summary}}
+
+## Content
+{{content}}
 
 ## People

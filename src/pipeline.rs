@@ -695,8 +695,11 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
             updated_at: now_rfc3339(),
         };
 
-        // Build body from template
-        let body_rendered = writer::render_body(&template.body, &p3_out.fields);
+        // Build body from template — inject pipeline-level fields so templates can use {{summary_1}}/{{summary_5}}
+        let mut render_fields = p3_out.fields.clone();
+        render_fields.insert("summary_1".to_string(), p3_out.summary_1.clone());
+        render_fields.insert("summary_5".to_string(), p3_out.summary_5.clone());
+        let body_rendered = writer::render_body(&template.body, &render_fields);
 
         let outcome = match template.merge_strategy {
             MergeStrategy::PureAtomic => {

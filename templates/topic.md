@@ -15,6 +15,10 @@ identity_fields:
   summary:
     type: string
     description: "One-paragraph overview"
+  content:
+    type: string
+    format: prose
+    description: "Source-agnostic 2–4 paragraph treatment: what this topic covers, why it matters, key dimensions and debates, and anything notable"
 
 sources:
   meeting_summary:
@@ -38,6 +42,10 @@ description: Brief source-agnostic description of this subject area
 field: summary
 description: One-paragraph overview of this topic independent of any source
 %%
+%%
+field: content
+description: Write 2–4 paragraphs on this topic. Cover what it encompasses, why it matters, key dimensions or debates, and anything notable or non-obvious. Do not reference this specific source document — write as a durable, source-agnostic knowledge entry.
+%%
 # {{name}}
 
 ## Description
@@ -45,3 +53,6 @@ description: One-paragraph overview of this topic independent of any source
 
 ## Summary
 {{summary}}
+
+## Content
+{{content}}

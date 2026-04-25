@@ -18,6 +18,10 @@ identity_fields:
   summary:
     type: string
     description: "Brief description of what this action item list covers"
+  content:
+    type: string
+    format: prose
+    description: "2–4 paragraphs explaining the context of this action item list: what situation generated it, who is involved, what the collective intent is, and what completing these items will achieve"
 
 sources:
   meeting_summary:
@@ -45,6 +49,10 @@ description: Person responsible for tracking these items
 field: summary
 description: What this action item list covers
 %%
+%%
+field: content
+description: Write 2–4 paragraphs on the context of this action item list. Cover what situation generated it, who is involved, what the collective intent is, and what completing these items will achieve. You may reference this specific document as the source.
+%%
 # {{name}}
 
 ## Context
@@ -55,5 +63,8 @@ description: What this action item list covers
 
 ## Summary
 {{summary}}
+
+## Content
+{{content}}
 
 ## Action Items

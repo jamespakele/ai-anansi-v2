@@ -18,6 +18,10 @@ identity_fields:
   summary:
     type: string
     description: "One-paragraph source-agnostic description"
+  content:
+    type: string
+    format: prose
+    description: "Source-agnostic 2–4 paragraph description: what this area covers, who owns it, why it matters, and its scope and boundaries"
 
 sources:
   meeting_summary:
@@ -45,6 +49,10 @@ description: What this area of responsibility covers
 field: summary
 description: One-paragraph source-agnostic description of this area
 %%
+%%
+field: content
+description: Write 2–4 paragraphs describing this area of responsibility. Cover what it encompasses, who owns it, why it matters, and its scope and boundaries. Do not reference this specific source document — write as a durable, source-agnostic knowledge entry.
+%%
 # {{name}}
 
 ## Owner
@@ -55,3 +63,6 @@ description: One-paragraph source-agnostic description of this area
 
 ## Summary
 {{summary}}
+
+## Content
+{{content}}

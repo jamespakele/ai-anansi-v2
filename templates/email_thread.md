@@ -21,10 +21,18 @@ identity_fields:
   summary:
     type: string
     description: "What the thread is about and what was resolved"
+  overview:
+    type: string
+    format: prose
+    description: "The convergence narrative: who is in this thread, why they are corresponding, what they are trying to resolve or achieve, and what the thread reveals about their relationships"
+  topics:
+    type: string
+    format: prose
+    description: "Per-topic sections covering the key exchanges in the thread"
 
 sources:
   email_thread:
-    hint: "Capture the thread metadata: subject, participants, date range, and overall summary of what was discussed and decided"
+    hint: "Capture the thread metadata and the full narrative of the exchange. Use overview for why these people are corresponding and topics for the key exchanges and decisions."
 ---
 %%
 field: name
@@ -46,6 +54,14 @@ description: Date range of the email thread
 field: summary
 description: What the thread was about and what was resolved or decided
 %%
+%%
+field: overview
+description: Write 2–4 paragraphs of connective tissue. Explain who is in this thread and why — the specific combination of people and organizations, what they are trying to resolve or achieve, and what their correspondence reveals about their relationships or interests. Use wikilinks for named participants: [[slug.entity_type|Display Name]].
+%%
+%%
+field: topics
+description: Write one ### subsection per major topic or exchange from the TOC. For each: (1) prose explaining who said what and why it matters — use wikilinks [[slug.person|Name]] and [[slug.organization|Name]]; (2) 2–4 bullet points capturing discrete decisions, commitments, or key points. Example: "### Topic Name\n[[person-slug.person|Person]] argued that...\n- Key point\n- Decision made"
+%%
 # {{name}}
 
 ## Thread Details
@@ -53,5 +69,8 @@ description: What the thread was about and what was resolved or decided
 - Participants: {{participants}}
 - Dates: {{date_range}}
 
-## Summary
-{{summary}}
+## Overview
+{{overview}}
+
+## Topics
+{{topics}}

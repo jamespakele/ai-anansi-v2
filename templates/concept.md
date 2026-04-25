@@ -18,6 +18,10 @@ identity_fields:
   summary:
     type: string
     description: "One-paragraph description independent of any source"
+  content:
+    type: string
+    format: prose
+    description: "Source-agnostic 2–4 paragraph treatment: what this concept is, how it works, why it matters, and anything notable or non-obvious"
 
 sources:
   meeting_summary:
@@ -45,6 +49,10 @@ description: Names of closely related concepts, comma-separated
 field: summary
 description: One paragraph describing this concept independent of any source
 %%
+%%
+field: content
+description: Write 2–4 paragraphs explaining this concept. Cover what it is, how it works, why it matters, and anything notable or non-obvious. Do not reference this specific source document — write as a durable, source-agnostic knowledge entry.
+%%
 # {{name}}
 
 ## Definition
@@ -55,3 +63,6 @@ description: One paragraph describing this concept independent of any source
 
 ## Related Concepts
 {{related_concepts}}
+
+## Content
+{{content}}

@@ -24,6 +24,10 @@ identity_fields:
   context:
     type: string
     description: "Brief context: why this task exists"
+  content:
+    type: string
+    format: prose
+    description: "2–4 paragraphs explaining the full context of this task: why it exists, what problem it solves, who is accountable, and what success looks like beyond the completion criterion"
 
 sources:
   meeting_summary:
@@ -59,6 +63,10 @@ description: What done looks like for this task
 field: context
 description: Brief context explaining why this task exists
 %%
+%%
+field: content
+description: Write 2–4 paragraphs on the full context of this task. Cover why it exists, what problem it solves, who is accountable, and what meaningful success looks like. You may reference this specific document as the source.
+%%
 # {{name}}
 
 ## Details
@@ -71,3 +79,6 @@ description: Brief context explaining why this task exists
 
 ## Context
 {{context}}
+
+## Content
+{{content}}

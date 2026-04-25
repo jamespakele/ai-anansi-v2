@@ -18,6 +18,10 @@ identity_fields:
   summary:
     type: string
     description: "One-sentence source-agnostic description of who this person is"
+  content:
+    type: string
+    format: prose
+    description: "Source-agnostic 2–4 paragraph profile: who this person is, their background, role, significance, and anything notable or non-obvious"
 
 sources:
   meeting_summary:
@@ -45,6 +49,10 @@ description: Phone number if mentioned in source
 field: summary
 description: One-sentence description — who is this person, independent of this source
 %%
+%%
+field: content
+description: Write 2–4 paragraphs profiling this person. Cover who they are, their background and role, their significance, and anything notable or non-obvious. Do not reference this specific source document — write as a durable, source-agnostic knowledge entry that will be enriched over time.
+%%
 # {{name}}
 
 ## Contact
@@ -53,3 +61,6 @@ description: One-sentence description — who is this person, independent of thi
 
 ## Summary
 {{summary}}
+
+## Content
+{{content}}

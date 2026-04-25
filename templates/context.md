@@ -23,6 +23,10 @@ identity_fields:
     type: string
     format: bullets
     description: "Main points discussed"
+  content:
+    type: string
+    format: prose
+    description: "2–4 paragraph narrative of what happened in this interaction: who was involved, what was exchanged, what it means, and how it connects to the broader context"
 
 sources:
   meeting_summary:
@@ -56,6 +60,10 @@ field: key_points
 description: Main points discussed or surfaced
 format: bullets
 %%
+%%
+field: content
+description: Write 2–4 paragraphs narrating what happened in this interaction. Cover who was involved, what was exchanged, what it means, and how it connects to the broader event or situation. You may reference this specific document as the source.
+%%
 # {{name}}
 
 ## Summary
@@ -66,6 +74,9 @@ format: bullets
 
 ## Decisions
 {{decisions}}
+
+## Content
+{{content}}
 
 ## Entities
 

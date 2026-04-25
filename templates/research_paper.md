@@ -21,10 +21,18 @@ identity_fields:
   abstract_summary:
     type: string
     description: "What this paper argues or demonstrates"
+  overview:
+    type: string
+    format: prose
+    description: "The convergence narrative: what question this paper addresses, who wrote it, what field it sits in, and why it matters — the intellectual context of the work"
+  topics:
+    type: string
+    format: prose
+    description: "Per-section breakdown of the paper's key arguments and findings"
 
 sources:
   research_paper:
-    hint: "Capture paper metadata: authors, date, venue, and a summary of the thesis or findings. The sections are context nodes."
+    hint: "Capture paper metadata and a full narrative of the thesis, methods, and findings. Use overview for the intellectual context and topics for the section-by-section breakdown."
 ---
 %%
 field: name
@@ -46,6 +54,14 @@ description: Journal, conference, or preprint venue
 field: abstract_summary
 description: What this paper argues or demonstrates — one paragraph
 %%
+%%
+field: overview
+description: Write 2–4 paragraphs of intellectual context. Explain what question this paper addresses, who wrote it and from what institution, what field or debate it sits in, and why it matters. Use wikilinks for named authors [[slug.person|Name]] and organizations [[slug.organization|Name]].
+%%
+%%
+field: topics
+description: Write one ### subsection per major section or argument from the TOC. For each: (1) prose explaining the argument, finding, or methodology in that section — use wikilinks for named concepts [[slug.concept|Name]] and people [[slug.person|Name]]; (2) 2–4 bullet points capturing the key claims or results. Example: "### Section Name\nThe authors argue that...\n- Key finding\n- Implication"
+%%
 # {{name}}
 
 ## Publication Details
@@ -53,5 +69,11 @@ description: What this paper argues or demonstrates — one paragraph
 - Date: {{publication_date}}
 - Venue: {{venue}}
 
-## Abstract Summary
+## Abstract
 {{abstract_summary}}
+
+## Overview
+{{overview}}
+
+## Topics
+{{topics}}

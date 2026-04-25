@@ -43,7 +43,7 @@ description: One-sentence description of what this note captures
 # {{name}}
 
 ## Summary
-{{summary}}
+{{summary_5}}
 
 ## Content
 {{content}}

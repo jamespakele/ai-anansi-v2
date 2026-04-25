@@ -81,5 +81,14 @@ The runtime image has no `USER` directive; the `anansi2` process runs as root. C
 **Docker volume rename is a data-loss footgun for existing deployments**
 Build-04 renamed `VOLUME ["/anansi"]` to `VOLUME ["/vault"]` and `./anansi:/anansi` to `./vault:/vault` in docker-compose.yml. Users upgrading an existing Docker deployment will silently start writing to a fresh `/vault` volume while their data remains at `./anansi` — no error, no warning. Add an upgrade note to README.md and/or a startup check that warns if `/anansi` exists but `/vault/anansi/anansi.toml` does not.
 
+---
+
+## From Build-05 Review
+
+**`summary_1`/`summary_5` collision risk in render_fields injection**
+`pipeline.rs` injects `summary_1` and `summary_5` into the cloned `p3_out.fields` map before calling `render_body`. If a future template declared an `identity_field` named `summary_1` or `summary_5`, the pipeline injection would silently overwrite the LLM-provided value. Currently no templates use these names. Guard against this by using `entry().or_insert()` instead of `insert()`, so LLM-provided values always win.
+
+---
+
 **`entity_type` value used directly in atomic note filenames without sanitization**
 `vault::atomic_note_path` uses `entity_type` directly as the file extension (`{slug}.{entity_type}.md`). Entity types that come from LLM-generated Pass 3 JSON (`EntityRef.entity_type`, pipeline.rs:369) are not validated against the template registry or restricted to the `[A-Za-z_?]+` character class that the TOC text parser enforces. A crafted or hallucinated `entity_type` containing `/` passed directly to `atomic_note_path` or `wikilink` could write outside `vault.web` or produce malformed wikilinks. Add validation that `entity_type` matches `^[A-Za-z_]+$` before constructing typed paths.

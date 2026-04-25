@@ -25,6 +25,10 @@ identity_fields:
     type: string
     format: bullets
     description: "Key outcomes or results"
+  content:
+    type: string
+    format: prose
+    description: "2–4 paragraph narrative of what happened at this event, who was involved, what was significant, and what it produced"
 
 sources:
   meeting_summary:
@@ -61,6 +65,10 @@ field: outcomes
 description: Key outcomes or results from the event
 format: bullets
 %%
+%%
+field: content
+description: Write 2–4 paragraphs narrating what happened at this event. Cover who was involved, what was discussed or decided, what made it significant, and what it produced. You may reference this specific document as the source.
+%%
 # {{name}}
 
 ## Identity
@@ -73,6 +81,9 @@ format: bullets
 
 ## Outcomes
 {{outcomes}}
+
+## Content
+{{content}}
 
 ## Participants
 

@@ -25,6 +25,10 @@ identity_fields:
   summary:
     type: string
     description: "One-paragraph source-agnostic description"
+  content:
+    type: string
+    format: prose
+    description: "Source-agnostic 2–4 paragraph profile: what this project is trying to achieve, why it matters, who is driving it, and what makes it significant"
 
 roster_sections:
   contributors:
@@ -63,6 +67,10 @@ description: Target or actual completion date
 field: summary
 description: One-paragraph description of the project independent of any source
 %%
+%%
+field: content
+description: Write 2–4 paragraphs on this project. Cover what it is trying to achieve, why it matters, who is driving it, its current state, and what makes it significant. Do not reference this specific document — write as a durable, source-agnostic knowledge entry.
+%%
 # {{name}}
 
 ## Identity
@@ -72,5 +80,8 @@ description: One-paragraph description of the project independent of any source
 
 ## Summary
 {{summary}}
+
+## Content
+{{content}}
 
 ## Contributors
