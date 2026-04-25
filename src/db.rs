@@ -172,7 +172,11 @@ pub async fn insert_note(pool: &DbPool, rec: &NoteRecord) -> Result<()> {
         "INSERT INTO notes \
          (id, entity_type, name, match_key, file_path, summary_1, summary_5, \
           merge_category, created_from, source_count, created_at, updated_at) \
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?) \
+         ON CONFLICT(match_key) DO UPDATE SET \
+           summary_1 = excluded.summary_1, \
+           summary_5 = excluded.summary_5, \
+           updated_at = excluded.updated_at",
     )
     .bind(&rec.id)
     .bind(&rec.entity_type)

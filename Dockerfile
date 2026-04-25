@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.78-slim as builder
+FROM rust:1.86-slim as builder
 
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
@@ -10,6 +10,7 @@ COPY src ./src
 COPY migrations ./migrations
 COPY templates ./templates
 COPY %Rules ./%Rules
+COPY prompts ./prompts
 COPY anansi.toml.example ./anansi.toml.example
 
 RUN cargo build --release

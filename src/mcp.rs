@@ -257,26 +257,28 @@ async fn tool_ingest(state: McpState, id: Value, args: Value) -> Json<Value> {
         );
     };
 
-    match ingest(ctx, &source_path).await {
-        Ok(result) => json_rpc_ok(
-            id,
-            json!({
-                "content": [{
-                    "type": "text",
-                    "text": serde_json::to_string(&json!({
-                        "source_id": result.source_id,
-                        "outline_note_id": result.outline_note_id,
-                        "atomic_notes_created": result.atomic_notes_created,
-                        "atomic_notes_merged": result.atomic_notes_merged,
-                        "edges_created": result.edges_created,
-                        "pass1_llm_called": result.pass1_llm_called,
-                        "duration_ms": result.duration_ms,
-                    })).unwrap_or_default()
-                }]
-            }),
-        ),
-        Err(e) => json_rpc_err(id, -32000, &format!("Ingest failed: {e}")),
-    }
+    let ctx_bg = Arc::clone(ctx);
+    let path_bg = source_path.clone();
+    tokio::spawn(async move {
+        match ingest(&ctx_bg, &path_bg).await {
+            Ok(r) => eprintln!("INFO: ingest complete: source_id={} notes_created={} duration_ms={}", r.source_id, r.atomic_notes_created, r.duration_ms),
+            Err(e) => eprintln!("ERROR: ingest failed for {}: {e:#}", path_bg.display()),
+        }
+    });
+
+    json_rpc_ok(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({
+                    "status": "queued",
+                    "source_path": source_path.to_string_lossy(),
+                    "message": "Ingest started in background. Use anansi_search to check results in a few minutes."
+                })).unwrap_or_default()
+            }]
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
