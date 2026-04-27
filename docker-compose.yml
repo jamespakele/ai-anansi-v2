@@ -21,7 +21,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 300s   # first boot pulls ~9.6GB — allow enough time
+      start_period: 1800s  # first boot pulls ~9.6GB — allow 30 min
 
   anansi:
     build: .
@@ -45,7 +45,7 @@ services:
       # HTTP→HTTPS is handled globally by Traefik on this VPS (no extra labels needed)
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started  # Gemini is primary — don't block on ollama's 9.6GB pull
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
