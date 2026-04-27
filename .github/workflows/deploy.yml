@@ -20,9 +20,7 @@ jobs:
           virtual-machine: ${{ vars.HOSTINGER_VM_ID }}
           project-name: anansi2
 
-          # Inject runtime secrets as env vars inside the container.
-          # These map to the variables the daemon reads from its environment.
+          # Only secrets need injecting — ANANSI_OLLAMA_URL is hardcoded in
+          # docker-compose.yml as http://ollama:11434 (internal Docker network).
           environment-variables: |
             ANANSI_GEMINI_API_KEY=${{ secrets.ANANSI_GEMINI_API_KEY }}
-            ANANSI_OLLAMA_URL=${{ vars.ANANSI_OLLAMA_URL }}
-            ANANSI_OLLAMA_MODEL=${{ vars.ANANSI_OLLAMA_MODEL }}
