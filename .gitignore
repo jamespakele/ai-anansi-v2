@@ -13,7 +13,6 @@
 /vault/*.md
 /vault/**/*.md
 !vault/anansi/anansi.toml
-Cargo.lock
 *.db
 *.db-shm
 *.db-wal
