@@ -26,10 +26,11 @@ If `ANANSI_ROOT` is set in the environment, use that. Otherwise ask the user.
 ---
 
 > **IMPORTANT:** The output TOC lines must match the parser regex exactly:
-> `^\s*\d+(?:\.\d+)+\s+.+?\s+\[\w+\](?:\s*\|\s*\w+:[^|]*)*\s*$`
-> Lines that don't match are silently dropped by the daemon. Do not produce
-> markdown fences, preamble, or commentary — only valid leaf lines plus optional
-> section header comments.
+> `^\s*\d+(?:\.\d+)*\s+.+?\s+\[\w+\](?:\s*\|\s*\w+:[^|]*)*\s*$`
+> Note: `(?:\.\d+)*` allows top-level addresses (`1`, `2`) as well as nested
+> ones (`1.1`, `2.3.1`). Lines that don't match are silently dropped by the daemon.
+> Do not produce markdown fences, preamble, or commentary — only valid leaf lines
+> plus optional `# Section comment` lines for readability.
 
 ---
 
@@ -52,13 +53,13 @@ Where:
   - `context_at: <address>,<address>` — comma-separated addresses where extra
     context for this entity appears in the source.
 
-Valid entity types:
-`person`, `organization`, `concept`, `event`, `project`, `task`, `area`,
-`context`, `topic`, `note`, `container`, `meeting_summary`, `email_thread`,
-`research_paper`, `action_item_list`, `outline`
+Valid entity types are determined by reading `<anansi-root>/templates/` in Step 3 —
+each `.md` filename stem (e.g. `person.md` → `person`) is a valid type. The list
+grows with each build; never use a hardcoded set here.
 
 Examples of valid leaf lines:
 ```
+1 Digital Futures Workshop [event] | hint: Strategic planning session at PICHTR
 1.1 Ian Kitajima [person] | hint: see attendee list
 1.2 PICHTR [organization]
 1.3 Sovereign AI [concept] | context_at: 2.1,2.2
@@ -87,12 +88,14 @@ user whether to regenerate).
 ## Step 3: Load templates and %Rules
 
 Read the following files:
-- `<anansi-root>/templates/*.md` — all template files define valid entity types
-  and their extraction schemas.
-- `<anansi-root>/%Rules/%Atomicity.md` — atomicity rules for entity decomposition.
-- `<anansi-root>/%Rules/%Downstream-Flow.md` — flow rules for source-to-note
+- `<anansi-root>/anansi/templates/*.md` — **list these files first** to get the current
+  set of valid entity type names (filename stem = type name). Read their content
+  for extraction field schemas and source-type hints.
+- `<anansi-root>/anansi/%Rules/%Atomicity.md` — atomicity rules for entity decomposition.
+- `<anansi-root>/anansi/%Rules/%Downstream-Flow.md` — flow rules for source-to-note
   contribution.
 
+Do not use a hardcoded type list — the template set evolves with each build.
 You do not need to read `%Merge-Strategy.md` or `%Template-Schema.md` for TOC
 generation. Load those only if the user asks for deeper context.
 
@@ -134,7 +137,7 @@ Write a TOC covering all significant entities in the source. Follow these rules:
 7. **Do not produce markdown fences, commentary, or preamble** — only the leaf
    lines (plus optional `# Section comment` lines for readability).
 8. **Quality check:** Run every line mentally against the regex
-   `^\s*\d+(?:\.\d+)+\s+.+?\s+\[\w+\](?:\s*\|\s*\w+:[^|]*)*\s*$` before
+   `^\s*\d+(?:\.\d+)*\s+.+?\s+\[\w+\](?:\s*\|\s*\w+:[^|]*)*\s*$` before
    including it. Drop any line that would not match.
 
 Aim for completeness: it is better to have more leaves (and let the daemon's

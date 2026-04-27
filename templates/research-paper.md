@@ -1,5 +1,6 @@
 ---
 entity_type: research_paper
+template_class: source
 atomic: false
 merge_strategy: source_bound
 template_version: "2.0"

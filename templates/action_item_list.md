@@ -1,5 +1,6 @@
 ---
 entity_type: action_item_list
+template_class: utility
 atomic: true
 merge_strategy: source_bound
 template_version: "2.0"

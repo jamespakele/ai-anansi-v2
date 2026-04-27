@@ -6,6 +6,9 @@ services:
     volumes:
       - ./vault:/vault
     environment:
+      # Gemini backend — REST fallback when CLI is not available inside the container
+      - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
+      # Ollama fallback — only used if backend = "ollama" in vault/anansi/anansi.toml
       - ANANSI_OLLAMA_URL=${ANANSI_OLLAMA_URL:-http://host.docker.internal:11434}
       - ANANSI_OLLAMA_MODEL=${ANANSI_OLLAMA_MODEL:-qwen2.5:14b}
     extra_hosts:

@@ -1,5 +1,6 @@
 ---
 entity_type: person
+template_class: identity
 atomic: true
 merge_strategy: pure_atomic
 template_version: "2.0"

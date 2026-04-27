@@ -1,9 +1,12 @@
 {
   "name": "anansi",
-  "version": "0.2.0",
-  "description": "Cowork plugin for the anansi knowledge vault. /remember stores a document in one motion (Claude does TOC + entity typing, local daemon handles expansion and relationships). /toc preprocesses a TOC for manual ingest.",
+  "version": "0.3.0",
+  "description": "Claude Code plugin for the anansi knowledge vault. /remember stores a source document in one motion (Claude does TOC + entity typing, daemon handles expansion and relationships). /toc preprocesses a TOC for manual ingest.",
   "author": {
-    "name": "Pakele.ai"
+    "name": "Pakele.ai",
+    "email": "james@pakele.ai"
   },
+  "homepage": "https://github.com/pakele-ai/ai-anansi-v2",
+  "license": "MIT",
   "keywords": ["anansi", "knowledge-vault", "zettelkasten", "toc-preprocessing", "remember", "mcp-ingest"]
 }

@@ -14,13 +14,17 @@ writes each note as a Markdown file, and records the relationships between them 
 SQLite database. You interact with the graph via the MCP server (JSON-RPC 2.0) or the
 CLI — no vendor lock-in, no cloud dependency.
 
-The pipeline runs four LLM passes per source:
-1. **Pass 1** — Decompose the source into a Table of Contents (TOC) of entities.
-2. **Pass 3** — Extract structured fields + summaries for each entity.
-3. **Pass 4** — Infer semantic relationships between entities.
+The pipeline runs three LLM passes per source:
+1. **Pass 1 (TOC)** — Decompose the source into a Table of Contents of typed entities.
+   This pass is handled **offline by a frontier model** — Claude via [Cowork](https://cowork.anthropic.com),
+   [Claude Code](https://claude.ai/code), or [Codex Desktop](https://codex.anthropic.com) —
+   using the `anansi.plugin` plugin. The augmented file (with `anansi_toc` frontmatter)
+   is committed back to the vault before ingestion.
+2. **Pass 3** — Extract structured fields + summaries for each entity (local LLM via Ollama).
+3. **Pass 4** — Infer semantic relationships between entities (local LLM via Ollama).
 
-Pass 1 is skipped when a preprocessed TOC is already present in the source frontmatter
-(produced by the `anansi.plugin` Cowork plugin).
+When the daemon detects a preprocessed `anansi_toc` block it skips Pass 1 entirely,
+so only the cheaper extraction and synthesis passes run locally.
 
 Full design: [`docs/anansi-v2-spec.md`](docs/anansi-v2-spec.md).
 
@@ -78,10 +82,13 @@ the config at runtime.
 source document
       │
       ▼
- pipeline::ingest()
-  ├── Pass 1: decompose → TOC          (LLM)
-  ├── Pass 3: extract fields/summaries (LLM, per entity)
-  └── Pass 4: infer relationships      (LLM)
+ anansi.plugin  (Claude — Cowork / Claude Code / Codex Desktop)
+  └── Pass 1: decompose → TOC  (frontier LLM, in your Claude session)
+      │  writes anansi_toc into source frontmatter
+      ▼
+ pipeline::ingest()             (local daemon, Ollama-backed)
+  ├── Pass 3: extract fields/summaries  (LLM, per entity)
+  └── Pass 4: infer relationships       (LLM)
       │
       ▼
  vault/  (Markdown files)
@@ -153,9 +160,9 @@ cargo test --test integration -- --nocapture
 ```
 
 Build docs are in `docs/`:
-- `anansi-v2-build-01-core.md` — DB schema, migrations, config
+- `anansi-v2-build-01-foundation.md` — DB schema, migrations, config
 - `anansi-v2-build-02-pipeline.md` — LLM passes, template system, merger
-- `anansi-v2-build-03-interfaces.md` — MCP server, CLI, Docker, Cowork plugin
+- `anansi-v2-build-03-interfaces.md` — MCP server, CLI, Docker, Claude plugin
 
 ---
 

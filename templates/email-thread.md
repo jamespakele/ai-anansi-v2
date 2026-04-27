@@ -1,5 +1,6 @@
 ---
 entity_type: email_thread
+template_class: source
 atomic: false
 merge_strategy: source_bound
 template_version: "2.0"

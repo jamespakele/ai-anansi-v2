@@ -5,6 +5,7 @@ use crate::template::TemplateRegistry;
 static PASS1_TEMPLATE: &str = include_str!("../prompts/pass-1-toc-extraction.md");
 static PASS3_TEMPLATE: &str = include_str!("../prompts/pass-3-node-expansion.md");
 static PASS4_TEMPLATE: &str = include_str!("../prompts/pass-4-relationship-extraction.md");
+static PASS3_BATCH_TEMPLATE: &str = include_str!("../prompts/pass-3-batch.md");
 
 const RELATIONSHIP_TYPES: &[&str] = &[
     "member_of", "belongs_to", "contains", "related_to", "discusses", "involves",
@@ -25,9 +26,9 @@ fn inject_rule(template: &str, rule_name: &str, rules: &RuleRegistry) -> Result<
     Ok(inject(template, &format!("RULES:{rule_name}"), value))
 }
 
-fn render_entity_types(templates: &TemplateRegistry) -> String {
+fn render_entity_types_for_source(templates: &TemplateRegistry, source_type: &str) -> String {
     templates
-        .atomic_types()
+        .types_for_source(source_type)
         .iter()
         .map(|t| format!("- [{t}]"))
         .collect::<Vec<_>>()
@@ -58,12 +59,25 @@ pub fn build_pass1(
     rules: &RuleRegistry,
     templates: &TemplateRegistry,
     source: &str,
+    source_type: &str,
 ) -> Result<String> {
     let mut prompt = PASS1_TEMPLATE.to_string();
     prompt = inject_rule(&prompt, "Atomicity", rules)?;
     prompt = inject_rule(&prompt, "Downstream-Flow", rules)?;
-    let entity_types = render_entity_types(templates);
+    let entity_types = render_entity_types_for_source(templates, source_type);
     prompt = inject(&prompt, "ENTITY_TYPES", &entity_types);
+    let floor_prompts = templates.floor_prompts_for_source(source_type);
+    let floor_rules = if floor_prompts.is_empty() {
+        String::new()
+    } else {
+        let mut s = "## Decomposition Floor Rules\n\n".to_string();
+        for fp in &floor_prompts {
+            s.push_str(fp);
+            s.push('\n');
+        }
+        s
+    };
+    prompt = inject(&prompt, "FLOOR_RULES", &floor_rules);
     prompt = inject(&prompt, "SOURCE", source);
     Ok(prompt)
 }
@@ -124,6 +138,61 @@ pub fn build_pass4(params: Pass4Params<'_>) -> String {
     prompt
 }
 
+/// Parse the unique entity types that appear in a TOC string.
+/// Matches the same `[entity_type]` annotation syntax used by `parse_toc`.
+fn parse_toc_entity_types(toc: &str) -> Vec<String> {
+    let re = regex::Regex::new(r"\[([A-Za-z_]+)\]").expect("valid regex");
+    let mut types: Vec<String> = re
+        .captures_iter(toc)
+        .map(|c| c[1].to_string())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    types.sort();
+    types
+}
+
+/// Assemble the combined Pass-3+4 batch prompt for frontier models.
+/// Collects field blocks for ALL entity types present in the TOC.
+pub fn build_pass3_batch(
+    rules: &RuleRegistry,
+    templates: &TemplateRegistry,
+    toc: &str,
+    source_body: &str,
+    implicit_edges: &str,
+) -> Result<String> {
+    let entity_types = parse_toc_entity_types(toc);
+
+    let template_fields = entity_types
+        .iter()
+        .filter_map(|et| {
+            let fields = render_template_fields(et, templates);
+            if fields.is_empty() {
+                None
+            } else {
+                let desc = templates
+                    .get(et)
+                    .map(|t| t.description.as_str())
+                    .unwrap_or("");
+                Some(format!("### {} — {}\n{}", et, desc, fields))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let rel_types = RELATIONSHIP_TYPES.join(", ");
+
+    let mut prompt = PASS3_BATCH_TEMPLATE.to_string();
+    prompt = inject_rule(&prompt, "Atomicity", rules)?;
+    prompt = inject_rule(&prompt, "Downstream-Flow", rules)?;
+    prompt = inject(&prompt, "TEMPLATE_FIELDS", &template_fields);
+    prompt = inject(&prompt, "SOURCE", source_body);
+    prompt = inject(&prompt, "TOC", toc);
+    prompt = inject(&prompt, "IMPLICIT_EDGES", implicit_edges);
+    prompt = inject(&prompt, "RELATIONSHIP_TYPES", &rel_types);
+    Ok(prompt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,15 +214,20 @@ mod tests {
     fn build_pass1_contains_rules_and_entity_types() {
         let templates = load_templates();
         let rules = load_rules();
-        let prompt = build_pass1(&rules, &templates, "This is the source content.").unwrap();
+        let prompt = build_pass1(&rules, &templates, "This is the source content.", "meeting_summary").unwrap();
 
         // Rules injected
         assert!(!prompt.contains("{RULES:Atomicity}"), "Atomicity placeholder not replaced");
         assert!(!prompt.contains("{RULES:Downstream-Flow}"), "Downstream-Flow placeholder not replaced");
-        // Entity types injected
+        // Entity types injected (meeting_summary shows identity + utility + meeting-family)
         assert!(!prompt.contains("{ENTITY_TYPES}"), "ENTITY_TYPES placeholder not replaced");
         assert!(prompt.contains("- [person]"), "person entity type should be listed");
         assert!(prompt.contains("- [concept]"), "concept entity type should be listed");
+        assert!(prompt.contains("- [topic_discussion]"), "topic_discussion should be listed for meeting_summary");
+        assert!(!prompt.contains("- [youtube_chapter]"), "youtube_chapter should NOT be listed for meeting_summary");
+        // Floor rules injected
+        assert!(!prompt.contains("{FLOOR_RULES}"), "FLOOR_RULES placeholder not replaced");
+        assert!(prompt.contains("Decomposition Floor Rules"), "floor rules header should appear for meeting_summary");
         // Source injected
         assert!(prompt.contains("This is the source content."), "source content should appear");
         assert!(!prompt.contains("{SOURCE}"), "SOURCE placeholder not replaced");

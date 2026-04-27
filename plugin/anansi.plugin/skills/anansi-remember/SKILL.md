@@ -1,6 +1,15 @@
-# Skill: anansi-remember
+---
+name: remember
+description: >-
+  Store a source document in the anansi knowledge vault in one motion.
+  Claude performs Pass 1 (TOC extraction with entity typing); the local
+  anansi daemon handles Pass 3 (entity expansion) and Pass 4 (relationship
+  extraction) via its configured LLM backend. Use when the user says
+  "remember this", "save this to anansi", or "ingest this document".
+argument-hint: "[vault_root]"
+---
 
-Take a source document — meeting notes, an email thread, a research summary, any prose — and store it in the anansi knowledge vault in a single motion. You do the structural thinking (Pass 1 TOC with entity typing); the local anansi daemon handles entity expansion (Pass 3) and relationship extraction (Pass 4) on the local GPU.
+Take a source document — meeting notes, an email thread, a research summary, any prose — and store it in the anansi knowledge vault in a single motion. You do the structural thinking (Pass 1 TOC with entity typing); the local anansi daemon handles entity expansion (Pass 3) and relationship extraction (Pass 4) via its configured LLM backend (Ollama, Gemini, or OpenRouter).
 
 ---
 

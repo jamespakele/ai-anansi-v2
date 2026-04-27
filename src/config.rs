@@ -8,6 +8,8 @@ pub struct Config {
     pub llm: LlmConfig,
     #[serde(default)]
     pub server: ServerConfig,
+    #[serde(default)]
+    pub pipeline: PipelineConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -45,6 +47,49 @@ pub struct LlmConfig {
     pub extraction: InferSettings,
     #[serde(default)]
     pub synthesis: InferSettings,
+    #[serde(default)]
+    pub gemini: Option<GeminiConfig>,
+    #[serde(default)]
+    pub openrouter: Option<OpenRouterConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct GeminiConfig {
+    /// Path to the gemini CLI binary; if absent, searches PATH
+    pub cli_path: Option<String>,
+    /// Model name passed to the CLI/REST API (e.g. "gemini-2.5-pro")
+    #[serde(default)]
+    pub model: String,
+    /// REST API key — fallback when CLI is not available
+    pub api_key: Option<String>,
+    /// Request timeout in seconds (default 120)
+    pub timeout_s: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct OpenRouterConfig {
+    /// OpenRouter API key (also readable from ANANSI_OPENROUTER_API_KEY)
+    pub api_key: Option<String>,
+    /// Model string e.g. "google/gemini-2.5-pro", "anthropic/claude-opus-4-7"
+    #[serde(default)]
+    pub model: String,
+    /// Base URL — defaults to "https://openrouter.ai/api/v1"
+    pub base_url: Option<String>,
+    /// Request timeout in seconds (default 120)
+    pub timeout_s: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct PipelineConfig {
+    /// "standard" (default) or "batch"
+    /// batch: collapses N Pass-3 + 1 Pass-4 into a single combined call
+    pub mode: Option<String>,
+}
+
+impl PipelineConfig {
+    pub fn is_batch(&self) -> bool {
+        self.mode.as_deref() == Some("batch")
+    }
 }
 
 fn default_backend() -> String { "ollama".to_string() }
@@ -107,6 +152,9 @@ impl Config {
                 .parse()
                 .with_context(|| format!("parsing ANANSI_MCP_PORT={port:?}"))?;
         }
+        if let Ok(key) = std::env::var("ANANSI_OPENROUTER_API_KEY") {
+            config.llm.openrouter.get_or_insert_default().api_key = Some(key);
+        }
 
         Ok(config)
     }
@@ -126,6 +174,16 @@ impl Config {
     pub fn db_path(&self, root: &Path) -> PathBuf {
         root.join(&self.paths.db_file)
     }
+}
+
+pub fn resolve_openrouter_api_key(cfg: &OpenRouterConfig) -> anyhow::Result<String> {
+    cfg.api_key
+        .clone()
+        .or_else(|| std::env::var("ANANSI_OPENROUTER_API_KEY").ok())
+        .ok_or_else(|| anyhow::anyhow!(
+            "OpenRouter API key not found. Set [llm.openrouter] api_key in anansi.toml \
+             or export ANANSI_OPENROUTER_API_KEY"
+        ))
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ use crate::llm::{InferOpts, LlmClient};
 use crate::merger;
 use crate::prompt::{self, Pass3Params, Pass4Params};
 use crate::rules::RuleRegistry;
-use crate::template::{MergeStrategy, TemplateRegistry};
+use crate::template::{MergeStrategy, TemplateClass, TemplateRegistry};
 use crate::vault::Vault;
 use crate::writer::{self, EntityRef};
 
@@ -38,6 +38,14 @@ pub struct Pass3Output {
     pub summary_5: String,
     pub tags: Vec<String>,
     pub entities: Vec<EntityRef>,
+}
+
+/// Lightweight parse target for the batch JSON response's `relationships` array.
+pub struct RelationshipEdge {
+    pub source: String,
+    pub target: String,
+    pub relationship: String,
+    pub why: String,
 }
 
 pub struct IngestContext {
@@ -303,15 +311,37 @@ pub fn validate_preprocessed_toc(
         }
     }
 
+    validate_no_floor_children(&leaves, templates)?;
+
     Ok(leaves)
 }
 
-/// Parse the JSON response from Pass 3.
-pub fn parse_pass3_response(raw: &str) -> Result<Pass3Output> {
-    let cleaned = strip_markdown_fences(raw);
-    let val: serde_json::Value =
-        serde_json::from_str(&cleaned).with_context(|| "parsing pass3 JSON response")?;
+/// Reject TOC entries where a content_unit floor type has child leaves.
+fn validate_no_floor_children(leaves: &[TocLeaf], registry: &TemplateRegistry) -> Result<()> {
+    for leaf in leaves {
+        if registry
+            .get(&leaf.entity_type)
+            .map(|t| t.template_class == TemplateClass::ContentUnit)
+            .unwrap_or(false)
+        {
+            let prefix = format!("{}.", leaf.address);
+            for other in leaves {
+                if other.address.starts_with(&prefix) {
+                    return Err(anyhow!(
+                        "TOC validation error: leaf {} ({}) is a content_unit floor type \
+                         and cannot have children. Found child at address {}.",
+                        leaf.address, leaf.entity_type, other.address
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
+/// Parse a single Pass-3 JSON value into `Pass3Output`.
+/// Used by both the per-leaf standard path and the batch path.
+pub fn parse_pass3_response_from_value(val: &serde_json::Value) -> Result<Pass3Output> {
     let fields: HashMap<String, String> = val
         .get("fields")
         .and_then(|f| f.as_object())
@@ -374,14 +404,67 @@ pub fn parse_pass3_response(raw: &str) -> Result<Pass3Output> {
         })
         .unwrap_or_default();
 
-    Ok(Pass3Output {
-        fields,
-        roster,
-        summary_1,
-        summary_5,
-        tags,
-        entities,
-    })
+    Ok(Pass3Output { fields, roster, summary_1, summary_5, tags, entities })
+}
+
+/// Parse the JSON response from Pass 3 (standard per-leaf path).
+pub fn parse_pass3_response(raw: &str) -> Result<Pass3Output> {
+    let cleaned = strip_markdown_fences(raw);
+    let val: serde_json::Value =
+        serde_json::from_str(&cleaned).with_context(|| "parsing pass3 JSON response")?;
+    parse_pass3_response_from_value(&val)
+}
+
+/// Parse the combined batch response into per-leaf extractions (keyed by toc_address) and relationships.
+fn parse_batch_response(raw: &str) -> Result<(HashMap<String, Pass3Output>, Vec<RelationshipEdge>)> {
+    let cleaned = strip_markdown_fences(raw);
+    let value: serde_json::Value = serde_json::from_str(&cleaned)
+        .map_err(|e| anyhow!("batch response is not valid JSON: {e}\nRaw (first 500 chars): {}", &raw[..raw.len().min(500)]))?;
+
+    let extractions_raw = value["extractions"]
+        .as_array()
+        .ok_or_else(|| anyhow!("batch response missing 'extractions' array"))?;
+
+    let extractions: HashMap<String, Pass3Output> = extractions_raw
+        .iter()
+        .filter_map(|v| {
+            let address = v.get("toc_address")?.as_str()?.to_string();
+            let p3 = parse_pass3_response_from_value(v).ok()?;
+            Some((address, p3))
+        })
+        .collect();
+
+    let relationships: Vec<RelationshipEdge> = value["relationships"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| {
+            let source = v["source"].as_str()?.to_string();
+            let target = v["target"].as_str()?.to_string();
+            let relationship = v["relationship"].as_str()?.to_string();
+            let why = v["why"].as_str().unwrap_or("").to_string();
+            if source.is_empty() || target.is_empty() || relationship.is_empty() {
+                return None;
+            }
+            Some(RelationshipEdge { source, target, relationship, why })
+        })
+        .collect();
+
+    Ok((extractions, relationships))
+}
+
+/// Derive the implicit edges string for batch prompt injection.
+/// Uses leaf name + entity_type to compute match_keys without requiring Pass3Output.
+fn build_implicit_edges_for_batch(leaves: &[TocLeaf], outline_note_id: &str) -> String {
+    leaves
+        .iter()
+        .map(|leaf| {
+            let mk = match_key(&leaf.name, &leaf.entity_type);
+            format!("{outline_note_id} contains {mk}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Derive implicit structural edges from the TOC.
@@ -545,7 +628,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
             Err(e) => {
                 tracing_warn(&format!("Invalid preprocessed TOC: {e}. Falling back to Pass 1."));
                 let p1_prompt =
-                    prompt::build_pass1(&ctx.rules, &ctx.templates, &body)?;
+                    prompt::build_pass1(&ctx.rules, &ctx.templates, &body, &source_type)?;
                 let opts = InferOpts::from_settings(&ctx.config.llm.decomposition);
                 toc_text = ctx.llm.infer(&p1_prompt, opts).await
                     .with_context(|| "LLM Pass 1 inference failed")?;
@@ -555,7 +638,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
             }
         }
     } else {
-        let p1_prompt = prompt::build_pass1(&ctx.rules, &ctx.templates, &body)?;
+        let p1_prompt = prompt::build_pass1(&ctx.rules, &ctx.templates, &body, &source_type)?;
         let opts = InferOpts::from_settings(&ctx.config.llm.decomposition);
         toc_text = ctx.llm.infer(&p1_prompt, opts).await
             .with_context(|| "LLM Pass 1 inference failed")?;
@@ -631,11 +714,37 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
     };
     insert_contribution(&ctx.db, &outline_contrib).await?;
 
-    // 9. Process each leaf: Pass 3
+    // 9. Process each leaf: Pass 3 (per-leaf) or batch
     let mut atomic_notes_created = 0usize;
     let mut atomic_notes_merged = 0usize;
     let mut leaf_note_ids: HashMap<String, String> = HashMap::new(); // address -> note_id
     let mut leaf_notes: Vec<(NoteRecord, Pass3Output)> = Vec::new();
+
+    // Batch mode: one combined LLM call replaces N Pass-3 calls + Pass-4.
+    // TODO: [llm.batch_settings]
+    let mut batch_rel_edges: Vec<RelationshipEdge> = Vec::new();
+    let mut batch_map: HashMap<String, Pass3Output> = if ctx.config.pipeline.is_batch() && !leaves.is_empty() {
+        let implicit_edges_str = build_implicit_edges_for_batch(&leaves, &outline_note_id);
+        let toc_str = leaves.iter()
+            .map(|l| {
+                let mut line = format!("{} {} [{}]", l.address, l.name, l.entity_type);
+                if let Some(ref h) = l.hint { line.push_str(&format!(" | hint: {h}")); }
+                line
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let batch_prompt = prompt::build_pass3_batch(&ctx.rules, &ctx.templates, &toc_str, &body, &implicit_edges_str)?;
+        let mut batch_opts = InferOpts::from_settings(&ctx.config.llm.synthesis);
+        batch_opts.json_mode = true;
+        let batch_raw = ctx.llm.infer(&batch_prompt, batch_opts).await
+            .with_context(|| "LLM batch inference failed")?;
+        let (extractions, rels) = parse_batch_response(&batch_raw)
+            .with_context(|| "parsing batch response")?;
+        batch_rel_edges = rels;
+        extractions
+    } else {
+        HashMap::new()
+    };
 
     for leaf in &leaves {
         let template = match ctx.templates.get(&leaf.entity_type) {
@@ -651,25 +760,27 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
 
         let leaf_hint = leaf.hint.as_deref().unwrap_or("");
 
-        let p3_params = Pass3Params {
-            entity_type: &leaf.entity_type,
-            entity_name: &leaf.name,
-            toc_address: &leaf.address,
-            source_hint,
-            leaf_hint,
-            context_at: &leaf.context_at,
-            source: &body,
+        let p3_out = if ctx.config.pipeline.is_batch() {
+            batch_map.remove(&leaf.address)
+                .ok_or_else(|| anyhow!("batch: no extraction for leaf {} ({})", leaf.address, leaf.name))?
+        } else {
+            let p3_params = Pass3Params {
+                entity_type: &leaf.entity_type,
+                entity_name: &leaf.name,
+                toc_address: &leaf.address,
+                source_hint,
+                leaf_hint,
+                context_at: &leaf.context_at,
+                source: &body,
+            };
+            let p3_prompt = prompt::build_pass3(&ctx.rules, &ctx.templates, p3_params)?;
+            let mut p3_opts = InferOpts::from_settings(&ctx.config.llm.extraction);
+            p3_opts.json_mode = true;
+            let p3_raw = ctx.llm.infer(&p3_prompt, p3_opts).await
+                .with_context(|| format!("LLM Pass 3 inference for leaf {}", leaf.address))?;
+            parse_pass3_response(&p3_raw)
+                .with_context(|| format!("parsing Pass 3 response for leaf {}", leaf.address))?
         };
-
-        let p3_prompt = prompt::build_pass3(&ctx.rules, &ctx.templates, p3_params)?;
-        let mut p3_opts = InferOpts::from_settings(&ctx.config.llm.extraction);
-        p3_opts.json_mode = true;
-
-        let p3_raw = ctx.llm.infer(&p3_prompt, p3_opts).await
-            .with_context(|| format!("LLM Pass 3 inference for leaf {}", leaf.address))?;
-
-        let p3_out = parse_pass3_response(&p3_raw)
-            .with_context(|| format!("parsing Pass 3 response for leaf {}", leaf.address))?;
 
         // Build note prototype
         let note_mk = match_key(&leaf.name, &leaf.entity_type);
@@ -783,8 +894,29 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
     )
     .await?;
 
-    // 11. Pass 4: relationship extraction
-    if !leaf_notes.is_empty() {
+    // 11. Relationship edges: batch path inserts from batch_rel_edges; standard path runs Pass 4
+    if ctx.config.pipeline.is_batch() {
+        for rel_edge in &batch_rel_edges {
+            let src_note = find_note_by_match_key(&ctx.db, &rel_edge.source).await?;
+            let tgt_note = find_note_by_match_key(&ctx.db, &rel_edge.target).await?;
+            if let (Some(src), Some(tgt)) = (src_note, tgt_note) {
+                let edge = EdgeRecord {
+                    id: Uuid::new_v4().to_string(),
+                    source_note_id: src.id,
+                    target_note_id: tgt.id,
+                    edge_type: rel_edge.relationship.clone(),
+                    why: Some(rel_edge.why.clone()),
+                    from_source: source_id.clone(),
+                    weight: 1.0,
+                    metadata: None,
+                    created_at: now_rfc3339(),
+                };
+                if insert_edge_if_not_exists(&ctx.db, &edge).await? {
+                    edges_created += 1;
+                }
+            }
+        }
+    } else if !leaf_notes.is_empty() {
         let (nodes_str, toc_str, implicit_str) =
             build_pass4_input(&leaf_notes, &leaves, &outline_note_id);
 
@@ -813,7 +945,6 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
                         continue;
                     }
 
-                    // Resolve match_keys to note IDs
                     let src_note = find_note_by_match_key(&ctx.db, source_mk).await?;
                     let tgt_note = find_note_by_match_key(&ctx.db, target_mk).await?;
 

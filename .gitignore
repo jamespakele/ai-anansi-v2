@@ -1,4 +1,18 @@
 /target
+
+# Environment files — never commit secrets
+.env
+.env.*
+!.env.example
+
+# Vault — ignore notes and runtime files, but keep anansi.toml
+/vault/anansi/web/
+/vault/anansi/web.db
+/vault/anansi/web.db-shm
+/vault/anansi/web.db-wal
+/vault/*.md
+/vault/**/*.md
+!vault/anansi/anansi.toml
 Cargo.lock
 *.db
 *.db-shm

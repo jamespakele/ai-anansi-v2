@@ -17,23 +17,33 @@ use anansi2::vault::Vault;
 // Embedded seed files (compile-time include_str!)
 // ---------------------------------------------------------------------------
 
-// Templates (16 files)
+// Templates (21 files)
 const TMPL_ACTION_ITEM_LIST: &str = include_str!("../templates/action_item_list.md");
-const TMPL_AREA: &str = include_str!("../templates/area.md");
-const TMPL_CONCEPT: &str = include_str!("../templates/concept.md");
 const TMPL_CONTAINER: &str = include_str!("../templates/container.md");
 const TMPL_CONTEXT: &str = include_str!("../templates/context.md");
-const TMPL_EMAIL_THREAD: &str = include_str!("../templates/email_thread.md");
 const TMPL_EVENT: &str = include_str!("../templates/event.md");
-const TMPL_MEETING_SUMMARY: &str = include_str!("../templates/meeting_summary.md");
-const TMPL_NOTE: &str = include_str!("../templates/note.md");
-const TMPL_ORGANIZATION: &str = include_str!("../templates/organization.md");
 const TMPL_OUTLINE: &str = include_str!("../templates/outline.md");
-const TMPL_PERSON: &str = include_str!("../templates/person.md");
-const TMPL_PROJECT: &str = include_str!("../templates/project.md");
-const TMPL_RESEARCH_PAPER: &str = include_str!("../templates/research_paper.md");
 const TMPL_TASK: &str = include_str!("../templates/task.md");
-const TMPL_TOPIC: &str = include_str!("../templates/topic.md");
+// identity-* templates
+const TMPL_AREA: &str = include_str!("../templates/identity-area.md");
+const TMPL_CONCEPT: &str = include_str!("../templates/identity-concept.md");
+const TMPL_NOTE: &str = include_str!("../templates/identity-note.md");
+const TMPL_ORGANIZATION: &str = include_str!("../templates/identity-organization.md");
+const TMPL_PERSON: &str = include_str!("../templates/identity-person.md");
+const TMPL_PROJECT: &str = include_str!("../templates/identity-project.md");
+const TMPL_TOPIC: &str = include_str!("../templates/identity-topic.md");
+// meeting family
+const TMPL_MEETING_SUMMARY: &str = include_str!("../templates/meeting-summary.md");
+const TMPL_MEETING_TOPIC_DISCUSSION: &str = include_str!("../templates/meeting-topic-discussion.md");
+// research family
+const TMPL_RESEARCH_PAPER: &str = include_str!("../templates/research-paper.md");
+const TMPL_RESEARCH_SECTION: &str = include_str!("../templates/research-section.md");
+// youtube family
+const TMPL_YOUTUBE_VIDEO: &str = include_str!("../templates/youtube-video.md");
+const TMPL_YOUTUBE_CHAPTER: &str = include_str!("../templates/youtube-chapter.md");
+// email family
+const TMPL_EMAIL_THREAD: &str = include_str!("../templates/email-thread.md");
+const TMPL_EMAIL_EXCHANGE: &str = include_str!("../templates/email-exchange.md");
 
 // Rules (4 files)
 const RULE_ATOMICITY: &str = include_str!("../%Rules/%Atomicity.md");
@@ -99,54 +109,73 @@ async fn cmd_init(root: &Path) -> Result<()> {
             .with_context(|| format!("creating directory {}", p.display()))?;
     }
 
-    // Seed template files (skip if already present)
+    // Seed template files — NEVER overwrite an existing file.
+    // Users may have customised templates; preserving them is intentional.
     let templates: &[(&str, &str)] = &[
         ("action_item_list.md", TMPL_ACTION_ITEM_LIST),
-        ("area.md", TMPL_AREA),
-        ("concept.md", TMPL_CONCEPT),
         ("container.md", TMPL_CONTAINER),
         ("context.md", TMPL_CONTEXT),
-        ("email_thread.md", TMPL_EMAIL_THREAD),
         ("event.md", TMPL_EVENT),
-        ("meeting_summary.md", TMPL_MEETING_SUMMARY),
-        ("note.md", TMPL_NOTE),
-        ("organization.md", TMPL_ORGANIZATION),
         ("outline.md", TMPL_OUTLINE),
-        ("person.md", TMPL_PERSON),
-        ("project.md", TMPL_PROJECT),
-        ("research_paper.md", TMPL_RESEARCH_PAPER),
         ("task.md", TMPL_TASK),
-        ("topic.md", TMPL_TOPIC),
+        ("identity-area.md", TMPL_AREA),
+        ("identity-concept.md", TMPL_CONCEPT),
+        ("identity-note.md", TMPL_NOTE),
+        ("identity-organization.md", TMPL_ORGANIZATION),
+        ("identity-person.md", TMPL_PERSON),
+        ("identity-project.md", TMPL_PROJECT),
+        ("identity-topic.md", TMPL_TOPIC),
+        ("meeting-summary.md", TMPL_MEETING_SUMMARY),
+        ("meeting-topic-discussion.md", TMPL_MEETING_TOPIC_DISCUSSION),
+        ("research-paper.md", TMPL_RESEARCH_PAPER),
+        ("research-section.md", TMPL_RESEARCH_SECTION),
+        ("youtube-video.md", TMPL_YOUTUBE_VIDEO),
+        ("youtube-chapter.md", TMPL_YOUTUBE_CHAPTER),
+        ("email-thread.md", TMPL_EMAIL_THREAD),
+        ("email-exchange.md", TMPL_EMAIL_EXCHANGE),
     ];
+    let mut tmpl_created = 0u32;
+    let mut tmpl_skipped = 0u32;
     for (name, content) in templates {
         let dest = root.join("anansi").join("templates").join(name);
-        if !dest.exists() {
+        if dest.exists() {
+            tmpl_skipped += 1;
+        } else {
             std::fs::write(&dest, content)
                 .with_context(|| format!("writing template {}", dest.display()))?;
+            tmpl_created += 1;
         }
     }
 
-    // Seed rules files (skip if already present)
+    // Seed rules files — same policy: skip if already present.
     let rules: &[(&str, &str)] = &[
         ("%Atomicity.md", RULE_ATOMICITY),
         ("%Downstream-Flow.md", RULE_DOWNSTREAM_FLOW),
         ("%Merge-Strategy.md", RULE_MERGE_STRATEGY),
         ("%Template-Schema.md", RULE_TEMPLATE_SCHEMA),
     ];
+    let mut rules_created = 0u32;
+    let mut rules_skipped = 0u32;
     for (name, content) in rules {
         let dest = root.join("anansi").join("%Rules").join(name);
-        if !dest.exists() {
+        if dest.exists() {
+            rules_skipped += 1;
+        } else {
             std::fs::write(&dest, content)
                 .with_context(|| format!("writing rule {}", dest.display()))?;
+            rules_created += 1;
         }
     }
 
-    // Copy anansi.toml.example → anansi/anansi.toml (skip if already present)
+    // anansi.toml — skip if already present; new users get the example as a starting point.
     let toml_dest = root.join("anansi").join("anansi.toml");
-    if !toml_dest.exists() {
+    let toml_msg = if toml_dest.exists() {
+        "preserved (your settings were not changed)"
+    } else {
         std::fs::write(&toml_dest, ANANSI_TOML_EXAMPLE)
             .with_context(|| format!("writing {}", toml_dest.display()))?;
-    }
+        "created — edit backend/model before first ingest"
+    };
 
     // Open and migrate the database
     let config = Config::load(root)?;
@@ -155,6 +184,9 @@ async fn cmd_init(root: &Path) -> Result<()> {
         .with_context(|| format!("opening/migrating DB at {}", db_path.display()))?;
 
     println!("Vault initialised at {}", root.display());
+    println!("  templates : {} created, {} preserved (existing files never overwritten)", tmpl_created, tmpl_skipped);
+    println!("  rules     : {} created, {} preserved", rules_created, rules_skipped);
+    println!("  anansi.toml: {}", toml_msg);
     Ok(())
 }
 

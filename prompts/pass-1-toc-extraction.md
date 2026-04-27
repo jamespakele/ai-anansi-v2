@@ -52,6 +52,8 @@ Each leaf entry must follow this exact format on a single line:
 - Do not wrap output in any code block or formatting.
 - Output starts immediately with the first address line.
 
+{FLOOR_RULES}
+
 ## Source Document
 
 {SOURCE}

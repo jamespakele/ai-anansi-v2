@@ -1,5 +1,6 @@
 ---
 entity_type: project
+template_class: identity
 atomic: true
 merge_strategy: container
 template_version: "2.0"

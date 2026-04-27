@@ -1,0 +1,44 @@
+[paths]
+web_dir      = "anansi/web"
+rules_dir    = "anansi/%Rules"
+templates_dir = "anansi/templates"
+db_file      = "anansi/web.db"
+
+[llm]
+backend   = "gemini"
+# Ollama fields kept for reference — not used when backend = "gemini"
+url       = "http://localhost:11434"
+model     = "gemini-2.5-pro"
+n_ctx     = 16384
+timeout_s = 600
+
+[llm.decomposition]
+temperature = 0.2
+max_tokens  = 4096
+json_mode   = false
+
+[llm.extraction]
+temperature = 0.2
+max_tokens  = 4096
+json_mode   = true
+
+[llm.synthesis]
+temperature = 0.5
+max_tokens  = 16384
+json_mode   = false
+
+[llm.gemini]
+# cli_path omitted — searches PATH first (uses Google OAuth / subscription quota)
+# Falls back to ANANSI_GEMINI_API_KEY env var if CLI not found or not authenticated
+model     = "gemini-2.5-pro"
+timeout_s = 300
+
+[pipeline]
+# batch mode: collapses all Pass-3 calls + Pass-4 into one Gemini call
+# ideal for gemini-2.5-pro's large context window
+mode = "batch"
+
+[server]
+mcp_port  = 3738
+host      = "0.0.0.0"
+read_only = false

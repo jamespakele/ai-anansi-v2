@@ -6,6 +6,27 @@ use std::collections::HashMap;
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum TemplateClass {
+    Identity,
+    ContentUnit,
+    Source,
+    Utility,
+}
+
+impl<'de> Deserialize<'de> for TemplateClass {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        match s.as_str() {
+            "identity" => Ok(TemplateClass::Identity),
+            "content_unit" => Ok(TemplateClass::ContentUnit),
+            "source" => Ok(TemplateClass::Source),
+            "utility" => Ok(TemplateClass::Utility),
+            other => Err(serde::de::Error::custom(format!("unknown template_class: {other}"))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum MergeStrategy {
     PureAtomic,
     Container,
@@ -61,6 +82,7 @@ pub struct FieldBlock {
 #[derive(Debug, Clone, Deserialize)]
 struct TemplateFrontmatter {
     entity_type: String,
+    template_class: TemplateClass,
     #[serde(default)]
     atomic: bool,
     merge_strategy: MergeStrategy,
@@ -68,6 +90,8 @@ struct TemplateFrontmatter {
     template_version: String,
     #[serde(default)]
     description: String,
+    #[serde(default)]
+    floor_prompt: Option<String>,
     #[serde(default)]
     identity_fields: HashMap<String, FieldDef>,
     #[serde(default)]
@@ -79,10 +103,13 @@ struct TemplateFrontmatter {
 #[derive(Debug, Clone)]
 pub struct Template {
     pub entity_type: String,
+    pub template_class: TemplateClass,
     pub atomic: bool,
     pub merge_strategy: MergeStrategy,
     pub template_version: String,
     pub description: String,
+    pub floor_prompt: Option<String>,
+    pub source_family: Option<String>,
     pub identity_fields: HashMap<String, FieldDef>,
     pub sources: HashMap<String, SourceHint>,
     pub roster_sections: HashMap<String, RosterSection>,
@@ -124,8 +151,16 @@ impl TemplateRegistry {
             let content = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading template: {}", path.display()))?;
 
-            let template = parse_template(&content)
+            let mut template = parse_template(&content)
                 .with_context(|| format!("parsing template: {}", path.display()))?;
+
+            // Parse source_family from filename prefix (e.g. "meeting-topic-discussion" → "meeting")
+            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            template.source_family = if stem.starts_with("identity-") || !stem.contains('-') {
+                None
+            } else {
+                stem.splitn(2, '-').next().map(|s| s.to_string())
+            };
 
             templates.insert(template.entity_type.clone(), template);
         }
@@ -160,6 +195,49 @@ impl TemplateRegistry {
         types.sort();
         types
     }
+
+    /// Returns entity types relevant to the given source_type:
+    /// identity + utility classes, plus any content_unit/source types
+    /// whose source_family matches the source type's family.
+    pub fn types_for_source(&self, source_type: &str) -> Vec<&str> {
+        let family = Self::source_family_of(source_type);
+        let mut types: Vec<&str> = self.templates.values()
+            .filter(|t| {
+                matches!(t.template_class, TemplateClass::Identity | TemplateClass::Utility)
+                    || (!family.is_empty()
+                        && t.source_family.as_deref() == Some(family))
+            })
+            .map(|t| t.entity_type.as_str())
+            .collect();
+        types.sort();
+        types
+    }
+
+    /// Returns floor_prompt strings from content_unit templates whose
+    /// source_family matches the source type's family.
+    pub fn floor_prompts_for_source(&self, source_type: &str) -> Vec<&str> {
+        let family = Self::source_family_of(source_type);
+        if family.is_empty() {
+            return Vec::new();
+        }
+        self.templates.values()
+            .filter(|t| {
+                t.template_class == TemplateClass::ContentUnit
+                    && t.source_family.as_deref() == Some(family)
+            })
+            .filter_map(|t| t.floor_prompt.as_deref())
+            .collect()
+    }
+
+    fn source_family_of(source_type: &str) -> &str {
+        match source_type {
+            "meeting_summary" => "meeting",
+            "research_paper"  => "research",
+            "email_thread"    => "email",
+            "youtube_video"   => "youtube",
+            _                 => "",
+        }
+    }
 }
 
 fn parse_template(content: &str) -> Result<Template> {
@@ -181,10 +259,13 @@ fn parse_template(content: &str) -> Result<Template> {
 
     Ok(Template {
         entity_type: fm.entity_type,
+        template_class: fm.template_class,
         atomic: fm.atomic,
         merge_strategy: fm.merge_strategy,
         template_version: fm.template_version,
         description: fm.description,
+        floor_prompt: fm.floor_prompt,
+        source_family: None, // set by load() from filename
         identity_fields: fm.identity_fields,
         sources: fm.sources,
         roster_sections: fm.roster_sections,
@@ -268,16 +349,14 @@ mod tests {
         PathBuf::from(manifest).join("templates")
     }
 
-    // Build doc names this test "loads_all_fifteen_templates" but lists 16 files in §6.
-    // The name is kept for AC traceability; the count is 16 (12 atomic + 4 source types).
     #[test]
-    fn loads_all_fifteen_templates() {
+    fn loads_all_templates() {
         let dir = templates_dir();
         let registry = TemplateRegistry::load(&dir).expect("should load all templates");
         assert_eq!(
             registry.templates.len(),
-            16,
-            "expected 16 templates (12 atomic + 4 non-atomic), got {}. Found: {:?}",
+            21,
+            "expected 21 templates (16 original + 5 new), got {}. Found: {:?}",
             registry.templates.len(),
             registry.all_entity_types()
         );
@@ -290,16 +369,15 @@ mod tests {
         let atomic = registry.atomic_types();
         assert_eq!(
             atomic.len(),
-            12,
-            "expected 12 atomic types, got {}: {:?}",
+            16,
+            "expected 16 atomic types, got {}: {:?}",
             atomic.len(),
             atomic
         );
-        // Verify all 12 expected output types are present
-        // (5 pure_atomic + 2 container + 4 source_bound + outline)
         let expected = [
-            "action_item_list", "area", "concept", "context", "event",
-            "note", "organization", "outline", "person", "project", "task", "topic",
+            "action_item_list", "area", "article_section", "concept", "context",
+            "email_exchange", "event", "note", "organization", "outline",
+            "person", "project", "task", "topic", "topic_discussion", "youtube_chapter",
         ];
         for t in &expected {
             assert!(atomic.contains(t), "missing atomic type: {t}");
@@ -307,14 +385,14 @@ mod tests {
     }
 
     #[test]
-    fn source_types_returns_four() {
+    fn source_types_returns_five() {
         let dir = templates_dir();
         let registry = TemplateRegistry::load(&dir).expect("should load");
         let sources = registry.source_types();
         assert_eq!(
             sources.len(),
-            4,
-            "expected 4 source types, got {}: {:?}",
+            5,
+            "expected 5 source types, got {}: {:?}",
             sources.len(),
             sources
         );
