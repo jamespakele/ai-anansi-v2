@@ -42,14 +42,7 @@ services:
       - "traefik.http.routers.anansi.entrypoints=websecure"
       - "traefik.http.routers.anansi.tls.certresolver=letsencrypt"
       - "traefik.http.services.anansi.loadbalancer.server.port=3738"
-      # Redirect HTTP → HTTPS
-      - "traefik.http.routers.anansi-http.rule=Host(`vps.pakele.ai`)"
-      - "traefik.http.routers.anansi-http.entrypoints=web"
-      - "traefik.http.routers.anansi-http.middlewares=redirect-to-https"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-    networks:
-      - proxy    # shared Traefik network (Hostinger pre-creates this)
-      - default  # internal network for ollama ↔ anansi communication
+      # HTTP→HTTPS is handled globally by Traefik on this VPS (no extra labels needed)
     depends_on:
       ollama:
         condition: service_healthy
@@ -66,6 +59,3 @@ services:
 volumes:
   ollama_models:   # persists gemma4:e4b across container restarts and redeploys
 
-networks:
-  proxy:
-    external: true  # Traefik's shared network, managed by Hostinger Docker Manager
