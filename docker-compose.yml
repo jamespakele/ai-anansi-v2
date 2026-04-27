@@ -1,4 +1,28 @@
 services:
+  ollama:
+    image: alpine/ollama:latest
+    # Pulls gemma4:e4b on first start only — persisted in the named volume.
+    # gemma4:e4b is the "Effective 4B" Gemma 4 model (~9.6GB quantized).
+    # Gemma 4 has native function calling, structured JSON output, and thinking
+    # mode — a major agentic leap over Gemma 3. Fits in 16GB RAM with room for
+    # the anansi container. CPU-only inference; slow but reliable fallback.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        sleep 5
+        ollama pull gemma4:e4b
+        wait
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s   # first boot pulls ~9.6GB — allow enough time
+
   anansi:
     build: .
     ports:
@@ -6,11 +30,15 @@ services:
     volumes:
       - ./vault:/vault
     environment:
-      # Gemini backend — REST fallback when CLI is not available inside the container
+      # Primary backend: Gemini REST (fast, frontier-quality)
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
-      # Ollama fallback — only used if backend = "ollama" in vault/anansi/anansi.toml
-      - ANANSI_OLLAMA_URL=${ANANSI_OLLAMA_URL:-http://host.docker.internal:11434}
-      - ANANSI_OLLAMA_MODEL=${ANANSI_OLLAMA_MODEL:-qwen2.5:14b}
+      # Fallback backend: local Ollama with gemma4:e4b
+      # Switch to backend = "ollama" in vault/anansi/anansi.toml to use this.
+      - ANANSI_OLLAMA_URL=http://ollama:11434
+      - ANANSI_OLLAMA_MODEL=${ANANSI_OLLAMA_MODEL:-gemma4:e4b}
+    depends_on:
+      ollama:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -19,4 +47,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s
+
+volumes:
+  ollama_models:   # persists gemma4:e4b across container restarts and redeploys
