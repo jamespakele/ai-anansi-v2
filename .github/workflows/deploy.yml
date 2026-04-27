@@ -1,0 +1,28 @@
+name: Deploy to Hostinger VPS
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy anansi2 to VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Deploy to Hostinger VPS
+        uses: hostinger/deploy-on-vps@v2
+        with:
+          api-key: ${{ secrets.HOSTINGER_API_KEY }}
+          virtual-machine: ${{ vars.HOSTINGER_VM_ID }}
+          project-name: anansi2
+
+          # Inject runtime secrets as env vars inside the container.
+          # These map to the variables the daemon reads from its environment.
+          environment-variables: |
+            ANANSI_GEMINI_API_KEY=${{ secrets.ANANSI_GEMINI_API_KEY }}
+            ANANSI_OLLAMA_URL=${{ vars.ANANSI_OLLAMA_URL }}
+            ANANSI_OLLAMA_MODEL=${{ vars.ANANSI_OLLAMA_MODEL }}
