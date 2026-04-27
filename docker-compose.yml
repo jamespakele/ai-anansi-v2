@@ -25,8 +25,7 @@ services:
 
   anansi:
     build: .
-    ports:
-      - "3738:3738"
+    # No direct port binding — Traefik handles ingress on 80/443
     volumes:
       - ./vault:/vault
     environment:
@@ -36,6 +35,21 @@ services:
       # Switch to backend = "ollama" in vault/anansi/anansi.toml to use this.
       - ANANSI_OLLAMA_URL=http://ollama:11434
       - ANANSI_OLLAMA_MODEL=${ANANSI_OLLAMA_MODEL:-gemma4:e4b}
+    labels:
+      - "traefik.enable=true"
+      # Route vps.pakele.ai → anansi container on port 3738
+      - "traefik.http.routers.anansi.rule=Host(`vps.pakele.ai`)"
+      - "traefik.http.routers.anansi.entrypoints=websecure"
+      - "traefik.http.routers.anansi.tls.certresolver=letsencrypt"
+      - "traefik.http.services.anansi.loadbalancer.server.port=3738"
+      # Redirect HTTP → HTTPS
+      - "traefik.http.routers.anansi-http.rule=Host(`vps.pakele.ai`)"
+      - "traefik.http.routers.anansi-http.entrypoints=web"
+      - "traefik.http.routers.anansi-http.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+    networks:
+      - proxy    # shared Traefik network (Hostinger pre-creates this)
+      - default  # internal network for ollama ↔ anansi communication
     depends_on:
       ollama:
         condition: service_healthy
@@ -51,3 +65,7 @@ services:
 
 volumes:
   ollama_models:   # persists gemma4:e4b across container restarts and redeploys
+
+networks:
+  proxy:
+    external: true  # Traefik's shared network, managed by Hostinger Docker Manager
