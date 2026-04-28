@@ -25,7 +25,10 @@ services:
 
   anansi:
     build: .
-    # No direct port binding — Traefik handles ingress on 80/443
+    # Bind to loopback only — Traefik (host network) reaches it via 127.0.0.1:3738
+    # Not exposed publicly; 0.0.0.0 is intentionally avoided.
+    ports:
+      - "127.0.0.1:3738:3738"
     volumes:
       - ./vault:/vault
     environment:
