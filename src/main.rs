@@ -233,11 +233,14 @@ async fn cmd_ingest(root: &Path, file: &Path) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 async fn cmd_serve(root: &Path) -> Result<()> {
+    eprintln!("[anansi2] serve starting — root={}", root.display());
+
     let config = Config::load(root)
         .with_context(|| format!("loading config from {}", root.display()))?;
 
     let host = config.server.host.clone();
     let port = config.server.mcp_port;
+    eprintln!("[anansi2] config loaded — host={host} port={port} backend={}", config.llm.backend);
 
     // Ensure the anansi subdirectory exists for the DB (vault may be empty on first boot)
     let db_path = config.db_path(root);
@@ -246,14 +249,25 @@ async fn cmd_serve(root: &Path) -> Result<()> {
             .with_context(|| format!("creating db directory {}", parent.display()))?;
     }
 
+    eprintln!("[anansi2] opening db at {}", db_path.display());
     let db_pool = db::open_and_migrate(&db_path).await?;
+
     let templates = TemplateRegistry::load(&config.templates_path(root)).unwrap_or_default();
     let rules = RuleRegistry::load(&config.rules_path(root)).unwrap_or_default();
     let vault = Vault::new(root.to_path_buf(), &config.paths.web_dir);
 
     // LLM not needed for MCP serve — atomized ingest is zero LLM calls.
     // Try to build one for legacy pipeline tools, but don't fail if unavailable.
-    let llm = llm::build_client(&config.llm).ok();
+    let llm = match llm::build_client(&config.llm) {
+        Ok(client) => {
+            eprintln!("[anansi2] llm client built ok");
+            Some(client)
+        }
+        Err(e) => {
+            eprintln!("[anansi2] llm client skipped: {e}");
+            None
+        }
+    };
 
     let ctx = Arc::new(IngestContext {
         anansi_root: root.to_path_buf(),
@@ -265,6 +279,7 @@ async fn cmd_serve(root: &Path) -> Result<()> {
         llm,
     });
 
+    eprintln!("[anansi2] binding to {host}:{port}");
     mcp::serve(ctx, &host, port).await?;
     Ok(())
 }
