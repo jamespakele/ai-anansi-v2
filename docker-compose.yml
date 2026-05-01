@@ -17,15 +17,12 @@ services:
       - "traefik.http.services.anansi.loadbalancer.server.port=3738"
     restart: unless-stopped
 
-  # WebDAV share for remote DB viewing over Tailscale
-  webdav:
-    image: ugeek/webdav:amd64
+  # Live read-only DB browser over Tailscale (for debugging)
+  datasette:
+    image: datasetteproject/datasette
+    command: ["datasette", "/data/anansi/web.db", "--host", "0.0.0.0", "--port", "8080", "--setting", "default_page_size", "50"]
     volumes:
-      - ./data:/media
-    environment:
-      - USERNAME=anansi
-      - PASSWORD=anansi
-      - TZ=Pacific/Honolulu
+      - ./data:/data:ro
     ports:
-      - "100.118.188.14:9090:80"
+      - "100.118.188.14:9090:8080"
     restart: unless-stopped
