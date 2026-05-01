@@ -1,28 +1,4 @@
 services:
-  ollama:
-    image: alpine/ollama:latest
-    # Pulls gemma4:e4b on first start only — persisted in the named volume.
-    # gemma4:e4b is the "Effective 4B" Gemma 4 model (~9.6GB quantized).
-    # Gemma 4 has native function calling, structured JSON output, and thinking
-    # mode — a major agentic leap over Gemma 3. Fits in 16GB RAM with room for
-    # the anansi container. CPU-only inference; slow but reliable fallback.
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        ollama serve &
-        sleep 5
-        ollama pull gemma4:e4b
-        wait
-    volumes:
-      - ollama_models:/root/.ollama
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:11434/api/tags || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 1800s  # first boot pulls ~9.6GB — allow 30 min
-
   anansi:
     build: .
     # Bind to loopback only — Traefik (host network) reaches it via 127.0.0.1:3738
@@ -32,33 +8,11 @@ services:
     volumes:
       - ./vault:/vault
     environment:
-      # Primary backend: Gemini REST (fast, frontier-quality)
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
-      # Fallback backend: local Ollama with gemma4:e4b
-      # Switch to backend = "ollama" in vault/anansi/anansi.toml to use this.
-      - ANANSI_OLLAMA_URL=http://ollama:11434
-      - ANANSI_OLLAMA_MODEL=${ANANSI_OLLAMA_MODEL:-gemma4:e4b}
     labels:
       - "traefik.enable=true"
-      # Route vps.pakele.ai → anansi container on port 3738
       - "traefik.http.routers.anansi.rule=Host(`vps.pakele.ai`)"
       - "traefik.http.routers.anansi.entrypoints=websecure"
       - "traefik.http.routers.anansi.tls.certresolver=letsencrypt"
       - "traefik.http.services.anansi.loadbalancer.server.port=3738"
-      # HTTP→HTTPS is handled globally by Traefik on this VPS (no extra labels needed)
-    depends_on:
-      ollama:
-        condition: service_started  # Gemini is primary — don't block on ollama's 9.6GB pull
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:3738/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
-volumes:
-  ollama_models:   # persists gemma4:e4b across container restarts and redeploys
-
