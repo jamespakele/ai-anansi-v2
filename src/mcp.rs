@@ -692,7 +692,39 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
         updated_at: db::now_rfc3339(),
     };
 
-    if let Err(e) = db::insert_note(&ctx.db, &rec).await {
+    // Capture-specific upsert: new values WIN (not COALESCE).
+    // Content is appended so facts accumulate across captures.
+    let result = sqlx::query(
+        "INSERT INTO notes \
+         (id, entity_type, name, match_key, lede, why, content, \
+          has_conflicts, conflicts_updated_at, merge_category, created_from, \
+          source_count, created_at, updated_at) \
+         VALUES (?,?,?,?,?,?,?,0,NULL,'entity',?,1,?,?) \
+         ON CONFLICT(match_key) DO UPDATE SET \
+           lede = excluded.lede, \
+           why = CASE WHEN excluded.why IS NOT NULL THEN excluded.why ELSE why END, \
+           content = CASE \
+             WHEN content IS NULL THEN excluded.content \
+             WHEN excluded.content IS NULL THEN content \
+             ELSE content || char(10) || excluded.content \
+           END, \
+           source_count = source_count + 1, \
+           updated_at = excluded.updated_at",
+    )
+    .bind(&rec.id)
+    .bind(&rec.entity_type)
+    .bind(&rec.name)
+    .bind(&rec.match_key)
+    .bind(&rec.lede)
+    .bind(&rec.why)
+    .bind(&rec.content)
+    .bind(db::MANUAL_SOURCE_ID)
+    .bind(&rec.created_at)
+    .bind(&rec.updated_at)
+    .execute(&ctx.db)
+    .await;
+
+    if let Err(e) = result {
         return json_rpc_err(id, -32000, &format!("Capture failed: {e:#}"));
     }
 
