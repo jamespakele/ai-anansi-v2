@@ -127,18 +127,6 @@ fn handle_tools_list(id: Value) -> Json<Value> {
         json!({
             "tools": [
                 {
-                    "name": "anansi_ingest",
-                    "description": "Ingest a source file by path or raw content+filename. Returns source_id and outline_note_id.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "source_path": { "type": "string", "description": "Absolute or root-relative path to the source file." },
-                            "content": { "type": "string", "description": "Raw markdown content to write and ingest." },
-                            "filename": { "type": "string", "description": "Filename to use when content is provided." }
-                        }
-                    }
-                },
-                {
                     "name": "anansi_search",
                     "description": "Search notes by name, lede, or why using LIKE.",
                     "inputSchema": {
@@ -212,6 +200,21 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                             }
                         }
                     }
+                },
+                {
+                    "name": "anansi_capture",
+                    "description": "Quick-capture a single note (person, event, organization, topic, etc.) without atomization. Upserts by match_key — safe to call multiple times for the same entity.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "entity_type": { "type": "string", "description": "Type tag: person, organization, event, topic, note, project, etc." },
+                            "name": { "type": "string", "description": "Display name, e.g. 'John Doe' or 'Meeting with Lynn'." },
+                            "lede": { "type": "string", "description": "The single most important fact about this entity." },
+                            "why": { "type": "string", "description": "Optional. Why this entity matters — one sentence of context." },
+                            "content": { "type": "string", "description": "Optional. Additional details, bullet points, structured info." }
+                        },
+                        "required": ["entity_type", "name", "lede"]
+                    }
                 }
             ]
         }),
@@ -239,12 +242,13 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         .unwrap_or_else(|| json!({}));
 
     match tool_name.as_str() {
-        "anansi_ingest" => tool_ingest(state, id, args).await,
+        "anansi_ingest" => json_rpc_err(id, -32000, "anansi_ingest is disabled. Use anansi_ingest_atomized instead."),
         "anansi_search" => tool_search(state, id, args).await,
         "anansi_get" => tool_get(state, id, args).await,
         "anansi_edges" => tool_edges(state, id, args).await,
         "anansi_relate" => tool_relate(state, id, args).await,
         "anansi_ingest_atomized" => tool_ingest_atomized(state, id, args).await,
+        "anansi_capture" => tool_capture(state, id, args).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
 }
@@ -632,6 +636,82 @@ async fn tool_ingest_atomized(state: McpState, id: Value, args: Value) -> Json<V
         ),
         Err(e) => json_rpc_err(id, -32000, &format!("Ingest failed: {e:#}")),
     }
+}
+
+// ---------------------------------------------------------------------------
+// anansi_capture
+// ---------------------------------------------------------------------------
+
+async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+
+    if ctx.config.server.read_only {
+        return json_rpc_err(id, -32000, "this anansi instance is read-only");
+    }
+
+    let entity_type = match args.get("entity_type").and_then(|v| v.as_str()) {
+        Some(t) => t.to_string(),
+        None => return json_rpc_err(id, -32602, "Missing required argument: entity_type"),
+    };
+    let name = match args.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n.to_string(),
+        None => return json_rpc_err(id, -32602, "Missing required argument: name"),
+    };
+    let lede = match args.get("lede").and_then(|v| v.as_str()) {
+        Some(l) => l.to_string(),
+        None => return json_rpc_err(id, -32602, "Missing required argument: lede"),
+    };
+    let why = args.get("why").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let content = args.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    let match_key = db::match_key(&name, &entity_type);
+
+    // Check if note already exists
+    let existing = db::find_note_by_match_key(&ctx.db, &match_key).await;
+    let existed = matches!(&existing, Ok(Some(_)));
+    let note_id = existing
+        .ok()
+        .flatten()
+        .map(|n| n.id)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    let rec = db::NoteRecord {
+        id: note_id.clone(),
+        entity_type,
+        name: name.clone(),
+        match_key: match_key.clone(),
+        lede: Some(lede),
+        why,
+        content,
+        has_conflicts: 0,
+        conflicts_updated_at: None,
+        merge_category: "entity".to_string(),
+        created_from: db::MANUAL_SOURCE_ID.to_string(),
+        source_count: 1,
+        created_at: db::now_rfc3339(),
+        updated_at: db::now_rfc3339(),
+    };
+
+    if let Err(e) = db::insert_note(&ctx.db, &rec).await {
+        return json_rpc_err(id, -32000, &format!("Capture failed: {e:#}"));
+    }
+
+    let status = if existed { "updated" } else { "created" };
+
+    json_rpc_ok(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({
+                    "status": status,
+                    "note_id": note_id,
+                    "match_key": match_key,
+                    "name": name,
+                })).unwrap_or_default()
+            }]
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
