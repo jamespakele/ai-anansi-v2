@@ -60,8 +60,8 @@ Return ONLY a valid JSON object with this exact schema. No preamble, no explanat
           {"name": "...", "slug": "...", "role": "..."}
         ]
       },
-      "summary_1": "One sentence, source-agnostic description of this entity",
-      "summary_5": "Up to five sentences, source-agnostic description",
+      "lede": "One sentence, source-agnostic description of this entity",
+      "why": "Up to two sentences, the axiom that makes this entity worth knowing",
       "tags": ["tag1", "tag2"],
       "entities": [
         {"name": "...", "entity_type": "...", "slug": "..."}
@@ -84,8 +84,8 @@ Return ONLY a valid JSON object with this exact schema. No preamble, no explanat
 ## Field Population Rules
 
 - Populate every declared field for each entity type. Use `"[not mentioned]"` for fields the source does not address.
-- For pure-atomic types (person, concept, topic, area, note): `summary_1` and `summary_5` must describe the entity INDEPENDENT of this source — no references to "this meeting", "this document", or any specific event.
-- For source-bound types (context, event, task, topic_discussion, article_section, etc.): `summary_1` may reference the source context.
+- For pure-atomic types (person, concept, topic, area, note): `lede` and `why` must describe the entity INDEPENDENT of this source — no references to "this meeting", "this document", or any specific event.
+- For source-bound types (context, event, task, topic_discussion, article_section, etc.): `lede` may reference the source context.
 - `roster` is present ONLY for container types (organization, project). Omit the key entirely for other types.
 - Include ALL named entities referenced by each leaf in its `entities` array — this is how cross-leaf wikilinks and edges are derived.
 

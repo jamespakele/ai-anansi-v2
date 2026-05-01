@@ -62,7 +62,7 @@ async fn make_context(
     root: &Path,
     llm: Box<dyn LlmClient>,
 ) -> IngestContext {
-    use anansi2::config::{Config, LlmConfig, InferSettings, PathsConfig, ServerConfig};
+    use anansi2::config::{Config, LlmConfig, InferSettings, PathsConfig, ServerConfig, PipelineConfig};
     use anansi2::db::open_and_migrate;
     use anansi2::rules::RuleRegistry;
     use anansi2::template::TemplateRegistry;
@@ -96,8 +96,11 @@ async fn make_context(
             decomposition: InferSettings { temperature: 0.2, max_tokens: 4096, json_mode: false },
             extraction: InferSettings { temperature: 0.2, max_tokens: 4096, json_mode: true },
             synthesis: InferSettings { temperature: 0.2, max_tokens: 4096, json_mode: true },
+            gemini: None,
+            openrouter: None,
         },
         server: ServerConfig::default(),
+        pipeline: PipelineConfig { mode: None },
     };
 
     IngestContext {
@@ -120,8 +123,8 @@ fn pass3_json_for(name: &str, entity_type: &str) -> String {
             "summary": format!("A {entity_type} named {name}.")
         },
         "roster": {},
-        "summary_1": format!("{name} is a {entity_type}."),
-        "summary_5": format!("{name} is a {entity_type} involved in various activities."),
+        "lede": format!("{name} is a {entity_type}."),
+        "why": format!("{name} is a {entity_type} involved in various activities."),
         "tags": [entity_type],
         "entities": []
     })
@@ -146,7 +149,7 @@ PICHTR is an organization. Sovereign AI was discussed. Context was important.
 
     // TOC with 3 pure-atomic + 1 container + 1 source-bound = 5 leaves
     let pass1_toc = "1.1 Ian Kitajima [person] | hint: see attendee list\n\
-                     1.2 Sovereign AI [concept] | hint: background section\n\
+                     1.2 Sovereign AI [note] | hint: background section\n\
                      1.3 AI Research [topic] | hint: research section\n\
                      2.1 PICHTR [organization] | hint: org section\n\
                      3.1 Workshop Discussion [context] | hint: main discussion\n";

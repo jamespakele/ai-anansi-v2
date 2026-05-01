@@ -122,7 +122,7 @@ pub fn build_pass3(
 }
 
 pub struct Pass4Params<'a> {
-    /// Each node as "match_key | entity_type | name | summary_1"
+    /// Each node as "match_key | entity_type | name | lede"
     pub nodes: &'a str,
     pub toc: &'a str,
     pub implicit_edges: &'a str,
@@ -222,7 +222,7 @@ mod tests {
         // Entity types injected (meeting_summary shows identity + utility + meeting-family)
         assert!(!prompt.contains("{ENTITY_TYPES}"), "ENTITY_TYPES placeholder not replaced");
         assert!(prompt.contains("- [person]"), "person entity type should be listed");
-        assert!(prompt.contains("- [concept]"), "concept entity type should be listed");
+        assert!(prompt.contains("- [person]"), "person entity type should be listed in pass1");
         assert!(prompt.contains("- [topic_discussion]"), "topic_discussion should be listed for meeting_summary");
         assert!(!prompt.contains("- [youtube_chapter]"), "youtube_chapter should NOT be listed for meeting_summary");
         // Floor rules injected

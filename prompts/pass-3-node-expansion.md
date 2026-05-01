@@ -35,13 +35,13 @@ Fill in all of the following fields. If a field is not mentioned in the source, 
 ## Anti-Contamination Rules
 
 For pure-atomic entity types (person, concept, topic, area, note):
-- `summary_1` and `summary_5` must NOT reference this specific document, meeting, event, or source.
-- Write summaries as if you had known this entity for years from many sources.
+- `lede` and `why` must NOT reference this specific document, meeting, event, or source.
+- Write them as if you had known this entity for years from many sources.
 - Source-specific observations belong in context or event nodes, not here.
 - Identity fields describe the entity itself, not what happened in this source.
 
 For source-bound types (context, event, task, action_item_list):
-- `summary_1` and `summary_5` may reference the specific source context.
+- `lede` and `why` may reference the specific source context.
 - Fields should capture what occurred, was discussed, or was decided.
 
 ## Output Format
@@ -57,8 +57,8 @@ Respond with a single JSON object — no markdown fences, no preamble, no explan
       {"name": "...", "slug": "...", "role": "..."}
     ]
   },
-  "summary_1": "<one sentence, source-agnostic for pure-atomic types>",
-  "summary_5": "<up to five sentences, source-agnostic for pure-atomic types>",
+  "lede": "<one sentence, source-agnostic for pure-atomic types>",
+  "why": "<up to two sentences, source-agnostic for pure-atomic types>",
   "tags": ["<tag1>", "<tag2>"],
   "entities": [
     {"name": "...", "entity_type": "...", "slug": "..."}
@@ -68,8 +68,8 @@ Respond with a single JSON object — no markdown fences, no preamble, no explan
 Notes:
 - `fields` — map every template field listed above to an extracted value.
 - `roster` — only include if this entity type has roster sections; otherwise use `{}`.
-- `summary_1` — one sentence capturing the essence of this entity.
-- `summary_5` — up to five sentences, a richer description.
+- `lede` — one sentence capturing the essence of this entity.
+- `why` — up to two sentences, the axiom that makes this entity worth knowing.
 - `tags` — 2–6 lowercase tags relevant to this entity.
 - `entities` — list any other named entities found in the source alongside this one; include name, entity_type, and a slug (lowercase-hyphenated form of the name).
 

@@ -24,13 +24,12 @@ const TMPL_CONTEXT: &str = include_str!("../templates/context.md");
 const TMPL_EVENT: &str = include_str!("../templates/event.md");
 const TMPL_OUTLINE: &str = include_str!("../templates/outline.md");
 const TMPL_TASK: &str = include_str!("../templates/task.md");
-// identity-* templates
-const TMPL_AREA: &str = include_str!("../templates/identity-area.md");
-const TMPL_CONCEPT: &str = include_str!("../templates/identity-concept.md");
-const TMPL_NOTE: &str = include_str!("../templates/identity-note.md");
-const TMPL_ORGANIZATION: &str = include_str!("../templates/identity-organization.md");
-const TMPL_PERSON: &str = include_str!("../templates/identity-person.md");
-const TMPL_PROJECT: &str = include_str!("../templates/identity-project.md");
+// entity-* templates
+const TMPL_AREA: &str = include_str!("../templates/entity-area.md");
+const TMPL_NOTE: &str = include_str!("../templates/entity-note.md");
+const TMPL_ORGANIZATION: &str = include_str!("../templates/entity-organization.md");
+const TMPL_PERSON: &str = include_str!("../templates/entity-person.md");
+const TMPL_PROJECT: &str = include_str!("../templates/entity-project.md");
 const TMPL_TOPIC: &str = include_str!("../templates/identity-topic.md");
 // meeting family
 const TMPL_MEETING_SUMMARY: &str = include_str!("../templates/meeting-summary.md");
@@ -118,12 +117,11 @@ async fn cmd_init(root: &Path) -> Result<()> {
         ("event.md", TMPL_EVENT),
         ("outline.md", TMPL_OUTLINE),
         ("task.md", TMPL_TASK),
-        ("identity-area.md", TMPL_AREA),
-        ("identity-concept.md", TMPL_CONCEPT),
-        ("identity-note.md", TMPL_NOTE),
-        ("identity-organization.md", TMPL_ORGANIZATION),
-        ("identity-person.md", TMPL_PERSON),
-        ("identity-project.md", TMPL_PROJECT),
+        ("entity-area.md", TMPL_AREA),
+        ("entity-note.md", TMPL_NOTE),
+        ("entity-organization.md", TMPL_ORGANIZATION),
+        ("entity-person.md", TMPL_PERSON),
+        ("entity-project.md", TMPL_PROJECT),
         ("identity-topic.md", TMPL_TOPIC),
         ("meeting-summary.md", TMPL_MEETING_SUMMARY),
         ("meeting-topic-discussion.md", TMPL_MEETING_TOPIC_DISCUSSION),

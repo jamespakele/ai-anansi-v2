@@ -9,3 +9,5 @@ pub mod writer;
 pub mod merger;
 pub mod pipeline;
 pub mod mcp;
+pub mod atomized_parser;
+pub mod atomized_ingest;

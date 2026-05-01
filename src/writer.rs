@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
-use crate::db::{NoteRecord, SourceRecord};
+use crate::db::SourceRecord;
 use crate::template::RosterSection;
 use crate::vault::Vault;
 
@@ -60,41 +60,6 @@ fn atomic_write(path: &Path, content: &str) -> Result<()> {
     Ok(())
 }
 
-/// Write an atomic note file with YAML frontmatter then body.
-///
-/// Frontmatter order: anansi_id, entity_type, name, match_key, then all fields.
-pub fn write_atomic_note(
-    _vault: &Vault,
-    note: &NoteRecord,
-    fields: &HashMap<String, String>,
-    body: &str,
-) -> Result<()> {
-    let path = PathBuf::from(&note.file_path);
-
-    // Collect field keys sorted for stability
-    let mut field_pairs: Vec<(String, String)> = fields
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    field_pairs.sort_by(|a, b| a.0.cmp(&b.0));
-
-    // We need owned strings for the pairs but emit_frontmatter takes &str,
-    // so build the frontmatter string directly.
-    let mut fm = String::from("---\n");
-    fm.push_str(&format!("anansi_id: {}\n", yaml_value(&note.id)));
-    fm.push_str(&format!("entity_type: {}\n", yaml_value(&note.entity_type)));
-    fm.push_str(&format!("name: {}\n", yaml_value(&note.name)));
-    fm.push_str(&format!("match_key: {}\n", yaml_value(&note.match_key)));
-    for (k, v) in &field_pairs {
-        fm.push_str(&format!("{}: {}\n", k, yaml_value(v)));
-    }
-    fm.push_str("---\n");
-
-    let content = format!("{fm}{body}");
-    atomic_write(&path, &content)
-        .with_context(|| format!("writing atomic note: {}", path.display()))?;
-    Ok(())
-}
 
 /// Write an outline note file.
 pub fn write_outline(

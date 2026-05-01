@@ -34,8 +34,8 @@ pub struct TocLeaf {
 pub struct Pass3Output {
     pub fields: HashMap<String, String>,
     pub roster: HashMap<String, Vec<HashMap<String, String>>>,
-    pub summary_1: String,
-    pub summary_5: String,
+    pub lede: String,
+    pub why: String,
     pub tags: Vec<String>,
     pub entities: Vec<EntityRef>,
 }
@@ -371,14 +371,14 @@ pub fn parse_pass3_response_from_value(val: &serde_json::Value) -> Result<Pass3O
         })
         .unwrap_or_default();
 
-    let summary_1 = val
-        .get("summary_1")
+    let lede = val
+        .get("lede")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
 
-    let summary_5 = val
-        .get("summary_5")
+    let why = val
+        .get("why")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
@@ -404,7 +404,7 @@ pub fn parse_pass3_response_from_value(val: &serde_json::Value) -> Result<Pass3O
         })
         .unwrap_or_default();
 
-    Ok(Pass3Output { fields, roster, summary_1, summary_5, tags, entities })
+    Ok(Pass3Output { fields, roster, lede, why, tags, entities })
 }
 
 /// Parse the JSON response from Pass 3 (standard per-leaf path).
@@ -531,11 +531,11 @@ fn build_pass4_input(
     leaves: &[TocLeaf],
     outline_note_id: &str,
 ) -> (String, String, String) {
-    // nodes: match_key | entity_type | name | summary_1
+    // nodes: match_key | entity_type | name | lede
     let nodes_str = leaf_notes
         .iter()
         .map(|(n, p3)| {
-            format!("{} | {} | {} | {}", n.match_key, n.entity_type, n.name, p3.summary_1)
+            format!("{} | {} | {} | {}", n.match_key, n.entity_type, n.name, p3.lede)
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -677,16 +677,18 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
     // 8. Create outline note
     let outline_note_id = Uuid::new_v4().to_string();
     let outline_match_key = match_key(&source_slug, "outline");
-    let outline_path = ctx.vault.outline_path(&source_slug);
+    let _outline_path = ctx.vault.outline_path(&source_slug);
 
     let outline_note = NoteRecord {
         id: outline_note_id.clone(),
         entity_type: "outline".to_string(),
         name: format!("{title} — Outline"),
         match_key: outline_match_key.clone(),
-        file_path: outline_path.to_string_lossy().to_string(),
-        summary_1: Some(format!("Outline for {title}")),
-        summary_5: None,
+        lede: Some(format!("Outline for {title}")),
+        why: None,
+        content: None,
+        has_conflicts: 0,
+        conflicts_updated_at: None,
         merge_category: "source_bound".to_string(),
         created_from: source_id.clone(),
         source_count: 1,
@@ -784,21 +786,17 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
 
         // Build note prototype
         let note_mk = match_key(&leaf.name, &leaf.entity_type);
-        let note_path = match template.merge_strategy {
-            MergeStrategy::SourceBound => {
-                ctx.vault.source_bound_path(&leaf.address, &leaf.name, &source_slug)
-            }
-            _ => ctx.vault.atomic_note_path(&leaf.entity_type, &leaf.name),
-        };
 
         let note_proto = NoteRecord {
             id: Uuid::new_v4().to_string(),
             entity_type: leaf.entity_type.clone(),
             name: leaf.name.clone(),
             match_key: note_mk.clone(),
-            file_path: note_path.to_string_lossy().to_string(),
-            summary_1: Some(p3_out.summary_1.clone()),
-            summary_5: Some(p3_out.summary_5.clone()),
+            lede: Some(p3_out.lede.clone()),
+            why: Some(p3_out.why.clone()),
+            content: None,
+            has_conflicts: 0,
+            conflicts_updated_at: None,
             merge_category: merge_strategy_str(&template.merge_strategy).to_string(),
             created_from: source_id.clone(),
             source_count: 1,
@@ -806,10 +804,10 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
             updated_at: now_rfc3339(),
         };
 
-        // Build body from template — inject pipeline-level fields so templates can use {{summary_1}}/{{summary_5}}
+        // Build body from template — inject pipeline-level fields so templates can use {{lede}}/{{why}}
         let mut render_fields = p3_out.fields.clone();
-        render_fields.insert("summary_1".to_string(), p3_out.summary_1.clone());
-        render_fields.insert("summary_5".to_string(), p3_out.summary_5.clone());
+        render_fields.insert("lede".to_string(), p3_out.lede.clone());
+        render_fields.insert("why".to_string(), p3_out.why.clone());
         let body_rendered = writer::render_body(&template.body, &render_fields);
 
         let outcome = match template.merge_strategy {
@@ -1061,13 +1059,13 @@ mod tests {
         let raw = r#"{
             "fields": {"name": "Ian Kitajima", "contact_email": "ian@example.com"},
             "roster": {},
-            "summary_1": "Research director at PICHTR.",
-            "summary_5": "Ian Kitajima is a research director at PICHTR focused on AI policy.",
+            "lede": "Research director at PICHTR.",
+            "why": "Ian Kitajima is a research director at PICHTR focused on AI policy.",
             "tags": ["ai", "research"],
             "entities": [{"name": "PICHTR", "entity_type": "organization", "slug": "pichtr"}]
         }"#;
         let out = parse_pass3_response(raw).unwrap();
-        assert_eq!(out.summary_1, "Research director at PICHTR.");
+        assert_eq!(out.lede, "Research director at PICHTR.");
         assert_eq!(out.fields.get("name").unwrap(), "Ian Kitajima");
         assert_eq!(out.entities.len(), 1);
         assert_eq!(out.entities[0].name, "PICHTR");
@@ -1075,9 +1073,9 @@ mod tests {
 
     #[test]
     fn parse_pass3_response_with_fences() {
-        let raw = "```json\n{\"fields\":{},\"roster\":{},\"summary_1\":\"Test\",\"summary_5\":\"Test.\",\"tags\":[],\"entities\":[]}\n```";
+        let raw = "```json\n{\"fields\":{},\"roster\":{},\"lede\":\"Test\",\"why\":\"Test.\",\"tags\":[],\"entities\":[]}\n```";
         let out = parse_pass3_response(raw).unwrap();
-        assert_eq!(out.summary_1, "Test");
+        assert_eq!(out.lede, "Test");
     }
 
     #[test]

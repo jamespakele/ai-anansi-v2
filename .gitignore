@@ -18,6 +18,12 @@
 *.db-wal
 *.tmp
 
+# cowork-generated error reports
+error-report*.md
+
+# test fixture data (real documents, not for git)
+/tests/fixtures
+
 # bmad framework & agent tooling
 /.agent
 /.agents

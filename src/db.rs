@@ -69,9 +69,11 @@ pub struct NoteRecord {
     pub entity_type: String,
     pub name: String,
     pub match_key: String,
-    pub file_path: String,
-    pub summary_1: Option<String>,
-    pub summary_5: Option<String>,
+    pub lede: Option<String>,
+    pub why: Option<String>,
+    pub content: Option<String>,
+    pub has_conflicts: i64,
+    pub conflicts_updated_at: Option<String>,
     pub merge_category: String,
     pub created_from: String,
     pub source_count: i64,
@@ -170,21 +172,26 @@ fn row_to_source(row: sqlx::sqlite::SqliteRow) -> SourceRecord {
 pub async fn insert_note(pool: &DbPool, rec: &NoteRecord) -> Result<()> {
     sqlx::query(
         "INSERT INTO notes \
-         (id, entity_type, name, match_key, file_path, summary_1, summary_5, \
-          merge_category, created_from, source_count, created_at, updated_at) \
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?) \
+         (id, entity_type, name, match_key, lede, why, content, \
+          has_conflicts, conflicts_updated_at, merge_category, created_from, \
+          source_count, created_at, updated_at) \
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) \
          ON CONFLICT(match_key) DO UPDATE SET \
-           summary_1 = excluded.summary_1, \
-           summary_5 = excluded.summary_5, \
+           lede = COALESCE(lede, excluded.lede), \
+           why = COALESCE(why, excluded.why), \
+           content = COALESCE(content, excluded.content), \
+           source_count = source_count + 1, \
            updated_at = excluded.updated_at",
     )
     .bind(&rec.id)
     .bind(&rec.entity_type)
     .bind(&rec.name)
     .bind(&rec.match_key)
-    .bind(&rec.file_path)
-    .bind(&rec.summary_1)
-    .bind(&rec.summary_5)
+    .bind(&rec.lede)
+    .bind(&rec.why)
+    .bind(&rec.content)
+    .bind(rec.has_conflicts)
+    .bind(&rec.conflicts_updated_at)
     .bind(&rec.merge_category)
     .bind(&rec.created_from)
     .bind(rec.source_count)
@@ -217,9 +224,11 @@ fn row_to_note(row: sqlx::sqlite::SqliteRow) -> NoteRecord {
         entity_type: row.get("entity_type"),
         name: row.get("name"),
         match_key: row.get("match_key"),
-        file_path: row.get("file_path"),
-        summary_1: row.get("summary_1"),
-        summary_5: row.get("summary_5"),
+        lede: row.get("lede"),
+        why: row.get("why"),
+        content: row.get("content"),
+        has_conflicts: row.get("has_conflicts"),
+        conflicts_updated_at: row.get("conflicts_updated_at"),
         merge_category: row.get("merge_category"),
         created_from: row.get("created_from"),
         source_count: row.get("source_count"),
@@ -228,16 +237,6 @@ fn row_to_note(row: sqlx::sqlite::SqliteRow) -> NoteRecord {
     }
 }
 
-pub async fn update_note_file_path(pool: &DbPool, id: &str, path: &str) -> Result<()> {
-    let now = now_rfc3339();
-    sqlx::query("UPDATE notes SET file_path = ?, updated_at = ? WHERE id = ?")
-        .bind(path)
-        .bind(&now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
 
 pub async fn increment_source_count(pool: &DbPool, note_id: &str) -> Result<()> {
     let now = now_rfc3339();
@@ -321,7 +320,7 @@ pub async fn search_notes(pool: &DbPool, query: &str, limit: i64) -> Result<Vec<
     let pattern = format!("%{escaped}%");
     let rows = sqlx::query(
         "SELECT * FROM notes \
-         WHERE name LIKE ? ESCAPE '\\' OR summary_1 LIKE ? ESCAPE '\\' OR summary_5 LIKE ? ESCAPE '\\' \
+         WHERE name LIKE ? ESCAPE '\\' OR lede LIKE ? ESCAPE '\\' OR why LIKE ? ESCAPE '\\' \
          ORDER BY updated_at DESC \
          LIMIT ?",
     )
@@ -332,20 +331,7 @@ pub async fn search_notes(pool: &DbPool, query: &str, limit: i64) -> Result<Vec<
     .fetch_all(pool)
     .await?;
 
-    Ok(rows.into_iter().map(|row| NoteRecord {
-        id: row.get("id"),
-        entity_type: row.get("entity_type"),
-        name: row.get("name"),
-        match_key: row.get("match_key"),
-        file_path: row.get("file_path"),
-        summary_1: row.get("summary_1"),
-        summary_5: row.get("summary_5"),
-        merge_category: row.get("merge_category"),
-        created_from: row.get("created_from"),
-        source_count: row.get("source_count"),
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
-    }).collect())
+    Ok(rows.into_iter().map(|row| row_to_note(row)).collect())
 }
 
 pub async fn find_contribution_by_source_toc(
@@ -356,9 +342,9 @@ pub async fn find_contribution_by_source_toc(
     let row = sqlx::query(
         "SELECT sc.id as sc_id, sc.source_id, sc.note_id, sc.toc_address, sc.hint, \
          sc.contribution_type, sc.payload, sc.contributed_at, \
-         n.id as n_id, n.entity_type, n.name, n.match_key, n.file_path, \
-         n.summary_1, n.summary_5, n.merge_category, n.created_from, \
-         n.source_count, n.created_at, n.updated_at \
+         n.id as n_id, n.entity_type, n.name, n.match_key, \
+         n.lede, n.why, n.content, n.has_conflicts, n.conflicts_updated_at, \
+         n.merge_category, n.created_from, n.source_count, n.created_at, n.updated_at \
          FROM source_contributions sc \
          JOIN notes n ON n.id = sc.note_id \
          WHERE sc.source_id = ? AND sc.toc_address = ?",
@@ -384,9 +370,11 @@ pub async fn find_contribution_by_source_toc(
             entity_type: r.get("entity_type"),
             name: r.get("name"),
             match_key: r.get("match_key"),
-            file_path: r.get("file_path"),
-            summary_1: r.get("summary_1"),
-            summary_5: r.get("summary_5"),
+            lede: r.get("lede"),
+            why: r.get("why"),
+            content: r.get("content"),
+            has_conflicts: r.get("has_conflicts"),
+            conflicts_updated_at: r.get("conflicts_updated_at"),
             merge_category: r.get("merge_category"),
             created_from: r.get("created_from"),
             source_count: r.get("source_count"),

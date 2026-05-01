@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::atomized_ingest;
 use crate::db::{self, EdgeRecord, now_rfc3339};
 use crate::pipeline::{ingest, IngestContext};
 
@@ -139,7 +140,7 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                 },
                 {
                     "name": "anansi_search",
-                    "description": "Search notes by name, summary_1, or summary_5 using LIKE.",
+                    "description": "Search notes by name, lede, or why using LIKE.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
@@ -186,6 +187,31 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                         },
                         "required": ["source_id", "target_id", "edge_type"]
                     }
+                },
+                {
+                    "name": "anansi_ingest_atomized",
+                    "description": "Ingest an atomized block set from the atomize or smart-brevity skill. Pass the atomized content directly (preferred — avoids disk write) or a file path. Optionally pass the PARA TOC from Pass 1 to store as the outline note content and source record. Creates notes with lede/why/content, an outline note for document recomposition, and hierarchy edges.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "content": {
+                                "type": "string",
+                                "description": "The full atomized blocks text (<!-- anansi-atomize: ... --> through <!-- concepts: ... -->). Preferred — pass the in-memory Pass 2 output directly."
+                            },
+                            "path": {
+                                "type": "string",
+                                "description": "Absolute path to a saved atomized .md file. Used only if content is not provided."
+                            },
+                            "para_toc": {
+                                "type": "string",
+                                "description": "Optional. The typed PARA TOC output from Pass 1 of the atomize skill. Stored as the source record's toc_text and as the outline note's content."
+                            },
+                            "source_path": {
+                                "type": "string",
+                                "description": "Optional. Path to the original source document being atomized (for source record attribution)."
+                            }
+                        }
+                    }
                 }
             ]
         }),
@@ -218,6 +244,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_get" => tool_get(state, id, args).await,
         "anansi_edges" => tool_edges(state, id, args).await,
         "anansi_relate" => tool_relate(state, id, args).await,
+        "anansi_ingest_atomized" => tool_ingest_atomized(state, id, args).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
 }
@@ -305,8 +332,8 @@ async fn tool_search(state: McpState, id: Value, args: Value) -> Json<Value> {
                         "id": n.id,
                         "name": n.name,
                         "entity_type": n.entity_type,
-                        "file_path": n.file_path,
-                        "summary_1": n.summary_1,
+                        "match_key": n.match_key,
+                        "lede": n.lede,
                     })
                 })
                 .collect();
@@ -341,9 +368,6 @@ async fn tool_get(state: McpState, id: Value, args: Value) -> Json<Value> {
         Err(e) => json_rpc_err(id, -32000, &format!("DB error: {e}")),
         Ok(None) => json_rpc_err(id, -32000, "Note not found"),
         Ok(Some(note)) => {
-            // Try to read file content from disk
-            let file_content = tokio::fs::read_to_string(&note.file_path).await.ok();
-
             // Count edges
             let edge_count = db::edges_for_note(&state.ctx.db, &note.id)
                 .await
@@ -355,9 +379,11 @@ async fn tool_get(state: McpState, id: Value, args: Value) -> Json<Value> {
                 "entity_type": note.entity_type,
                 "name": note.name,
                 "match_key": note.match_key,
-                "file_path": note.file_path,
-                "summary_1": note.summary_1,
-                "summary_5": note.summary_5,
+                "lede": note.lede,
+                "why": note.why,
+                "content": note.content,
+                "has_conflicts": note.has_conflicts,
+                "conflicts_updated_at": note.conflicts_updated_at,
                 "merge_category": note.merge_category,
                 "source_count": note.source_count,
                 "created_at": note.created_at,
@@ -365,8 +391,9 @@ async fn tool_get(state: McpState, id: Value, args: Value) -> Json<Value> {
                 "edge_count": edge_count,
             });
 
-            if let Some(content) = file_content {
-                result["content"] = Value::String(content);
+            if note.content.is_none() {
+                result["warning"] = Value::String("content_not_available".to_string());
+                result["message"] = Value::String("note has no inline content yet".to_string());
             }
 
             json_rpc_ok(
@@ -544,6 +571,66 @@ async fn tool_relate(state: McpState, id: Value, args: Value) -> Json<Value> {
             }),
         ),
         Err(e) => json_rpc_err(id, -32000, &format!("Failed to insert edge: {e}")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// anansi_ingest_atomized
+// ---------------------------------------------------------------------------
+
+async fn tool_ingest_atomized(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+
+    if ctx.config.server.read_only {
+        return json_rpc_err(id, -32000, "this anansi instance is read-only");
+    }
+
+    // Resolve content_str: inline content preferred; else read from path
+    let content_str = if let Some(c) = args.get("content").and_then(|v| v.as_str()) {
+        c.to_string()
+    } else if let Some(p) = args.get("path").and_then(|v| v.as_str()) {
+        let raw = std::path::PathBuf::from(p);
+        let canonical = match raw.canonicalize() {
+            Ok(c) => c,
+            Err(e) => return json_rpc_err(id, -32602, &format!("Cannot resolve path: {e}")),
+        };
+        if !canonical.starts_with(&*ctx.anansi_root) {
+            return json_rpc_err(id, -32602, "path escapes anansi root");
+        }
+        match tokio::fs::read_to_string(&canonical).await {
+            Ok(s) => s,
+            Err(e) => return json_rpc_err(id, -32000, &format!("Failed to read file: {e}")),
+        }
+    } else {
+        return json_rpc_err(id, -32602, "must provide either content or path");
+    };
+
+    let para_toc = args.get("para_toc").and_then(|v| v.as_str());
+    let source_path = args.get("source_path").and_then(|v| v.as_str());
+
+    match atomized_ingest::ingest_atomized(&ctx.db, &content_str, para_toc, source_path).await {
+        Ok(report) if report.status == "already_ingested" => json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&json!({
+                        "status": "already_ingested",
+                        "source_id": report.source_id,
+                    })).unwrap_or_default()
+                }]
+            }),
+        ),
+        Ok(report) => json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&report).unwrap_or_default()
+                }]
+            }),
+        ),
+        Err(e) => json_rpc_err(id, -32000, &format!("Ingest failed: {e:#}")),
     }
 }
 

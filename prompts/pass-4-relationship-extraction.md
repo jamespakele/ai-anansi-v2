@@ -6,7 +6,7 @@ Find semantic edges between the extracted nodes that are NOT already captured st
 
 ## Extracted Nodes
 
-Each node is listed as: match_key | entity_type | name | summary_1
+Each node is listed as: match_key | entity_type | name | lede
 
 {NODES}
 

@@ -92,3 +92,12 @@ Build-04 renamed `VOLUME ["/anansi"]` to `VOLUME ["/vault"]` and `./anansi:/anan
 
 **`entity_type` value used directly in atomic note filenames without sanitization**
 `vault::atomic_note_path` uses `entity_type` directly as the file extension (`{slug}.{entity_type}.md`). Entity types that come from LLM-generated Pass 3 JSON (`EntityRef.entity_type`, pipeline.rs:369) are not validated against the template registry or restricted to the `[A-Za-z_?]+` character class that the TOC text parser enforces. A crafted or hallucinated `entity_type` containing `/` passed directly to `atomic_note_path` or `wikilink` could write outside `vault.web` or produce malformed wikilinks. Add validation that `entity_type` matches `^[A-Za-z_]+$` before constructing typed paths.
+
+---
+
+## Deferred from: code review of spec-build-08-smart-brevity-schema (2026-04-30)
+
+- `baseline_commit` is blank — Code Map line numbers can't be verified against a pinned state. Edge Hunter confirmed most numbers are accurate at HEAD; process gap only.
+- No down migration / rollback strategy for local DB recovery after a failed 0002 run. Pre-existing SQLx limitation; the table-drop step is irreversible without a backup. Out of scope for Build-08.
+- `content_sb` NULL-for-resource-notes invariant has no DB-level enforcement (no CHECK constraint). Application-level "Never" constraint in the spec covers it for Build-08. Enforcement belongs to the atomized ingest pipeline (Build-09).
+- `source_contributions` UNIQUE(source_id, note_id) blocks multiple TOC contributions from the same source to the same note at different TOC addresses. Pre-existing design constraint; not introduced by Build-08. Revisit when Build-09 atomized ingest is implemented.
