@@ -55,7 +55,7 @@ pub struct IngestContext {
     pub db: DbPool,
     pub templates: TemplateRegistry,
     pub rules: RuleRegistry,
-    pub llm: Box<dyn LlmClient>,
+    pub llm: Option<Box<dyn LlmClient>>,
 }
 
 pub struct IngestResult {
@@ -565,6 +565,8 @@ fn build_pass4_input(
 
 /// Main ingest pipeline.
 pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestResult> {
+    let llm = ctx.llm.as_ref()
+        .ok_or_else(|| anyhow!("legacy ingest requires an LLM backend — configure [llm] in anansi.toml or set ANANSI_GEMINI_API_KEY"))?;
     let start = Instant::now();
 
     // 1. Parse source file
@@ -630,7 +632,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
                 let p1_prompt =
                     prompt::build_pass1(&ctx.rules, &ctx.templates, &body, &source_type)?;
                 let opts = InferOpts::from_settings(&ctx.config.llm.decomposition);
-                toc_text = ctx.llm.infer(&p1_prompt, opts).await
+                toc_text = llm.infer(&p1_prompt, opts).await
                     .with_context(|| "LLM Pass 1 inference failed")?;
                 pass1_llm_called = true;
                 preprocessed_toc = 0;
@@ -640,7 +642,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
     } else {
         let p1_prompt = prompt::build_pass1(&ctx.rules, &ctx.templates, &body, &source_type)?;
         let opts = InferOpts::from_settings(&ctx.config.llm.decomposition);
-        toc_text = ctx.llm.infer(&p1_prompt, opts).await
+        toc_text = llm.infer(&p1_prompt, opts).await
             .with_context(|| "LLM Pass 1 inference failed")?;
         pass1_llm_called = true;
         preprocessed_toc = 0;
@@ -738,7 +740,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
         let batch_prompt = prompt::build_pass3_batch(&ctx.rules, &ctx.templates, &toc_str, &body, &implicit_edges_str)?;
         let mut batch_opts = InferOpts::from_settings(&ctx.config.llm.synthesis);
         batch_opts.json_mode = true;
-        let batch_raw = ctx.llm.infer(&batch_prompt, batch_opts).await
+        let batch_raw = llm.infer(&batch_prompt, batch_opts).await
             .with_context(|| "LLM batch inference failed")?;
         let (extractions, rels) = parse_batch_response(&batch_raw)
             .with_context(|| "parsing batch response")?;
@@ -778,7 +780,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
             let p3_prompt = prompt::build_pass3(&ctx.rules, &ctx.templates, p3_params)?;
             let mut p3_opts = InferOpts::from_settings(&ctx.config.llm.extraction);
             p3_opts.json_mode = true;
-            let p3_raw = ctx.llm.infer(&p3_prompt, p3_opts).await
+            let p3_raw = llm.infer(&p3_prompt, p3_opts).await
                 .with_context(|| format!("LLM Pass 3 inference for leaf {}", leaf.address))?;
             parse_pass3_response(&p3_raw)
                 .with_context(|| format!("parsing Pass 3 response for leaf {}", leaf.address))?
@@ -927,7 +929,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
         let mut p4_opts = InferOpts::from_settings(&ctx.config.llm.synthesis);
         p4_opts.json_mode = true;
 
-        let p4_raw = ctx.llm.infer(&p4_prompt, p4_opts).await
+        let p4_raw = llm.infer(&p4_prompt, p4_opts).await
             .with_context(|| "LLM Pass 4 inference failed")?;
 
         let cleaned = strip_markdown_fences(&p4_raw);

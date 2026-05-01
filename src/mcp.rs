@@ -641,9 +641,12 @@ async fn tool_ingest_atomized(state: McpState, id: Value, args: Value) -> Json<V
 async fn handle_health(State(state): State<McpState>) -> impl IntoResponse {
     let ctx = &state.ctx;
 
-    // Check LLM reachability
-    let llm_ok = ctx.llm.ping().await.is_ok();
-    let ollama_status = if llm_ok { "reachable" } else { "unreachable" };
+    // Check LLM reachability (optional — may not be configured)
+    let llm_status = if let Some(ref llm) = ctx.llm {
+        if llm.ping().await.is_ok() { "reachable" } else { "unreachable" }
+    } else {
+        "not_configured"
+    };
 
     // Check DB with SELECT 1
     let db_ok = sqlx::query("SELECT 1")
@@ -652,11 +655,12 @@ async fn handle_health(State(state): State<McpState>) -> impl IntoResponse {
         .is_ok();
     let db_status = if db_ok { "ok" } else { "error" };
 
-    let status = if llm_ok && db_ok { "ok" } else { "degraded" };
+    // Server is healthy as long as DB works — LLM is optional
+    let status = if db_ok { "ok" } else { "degraded" };
 
     let body = json!({
         "status": status,
-        "ollama": ollama_status,
+        "llm": llm_status,
         "db": db_status,
         "version": "0.1.0",
     });

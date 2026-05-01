@@ -209,7 +209,7 @@ async fn cmd_ingest(root: &Path, file: &Path) -> Result<()> {
         db: db_pool,
         templates,
         rules,
-        llm,
+        llm: Some(llm),
     });
 
     let result = ingest(&ctx, file).await?;
@@ -250,7 +250,10 @@ async fn cmd_serve(root: &Path) -> Result<()> {
     let templates = TemplateRegistry::load(&config.templates_path(root)).unwrap_or_default();
     let rules = RuleRegistry::load(&config.rules_path(root)).unwrap_or_default();
     let vault = Vault::new(root.to_path_buf(), &config.paths.web_dir);
-    let llm = llm::build_client(&config.llm)?;
+
+    // LLM not needed for MCP serve — atomized ingest is zero LLM calls.
+    // Try to build one for legacy pipeline tools, but don't fail if unavailable.
+    let llm = llm::build_client(&config.llm).ok();
 
     let ctx = Arc::new(IngestContext {
         anansi_root: root.to_path_buf(),

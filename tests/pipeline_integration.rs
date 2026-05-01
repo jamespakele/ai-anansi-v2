@@ -110,7 +110,7 @@ async fn make_context(
         db,
         templates,
         rules,
-        llm,
+        llm: Some(llm),
     }
 }
 
