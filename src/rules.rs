@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 
+#[derive(Default)]
 pub struct RuleRegistry {
     rules: HashMap<String, String>,
 }

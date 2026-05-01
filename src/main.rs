@@ -239,9 +239,16 @@ async fn cmd_serve(root: &Path) -> Result<()> {
     let host = config.server.host.clone();
     let port = config.server.mcp_port;
 
-    let db_pool = db::open_and_migrate(&config.db_path(root)).await?;
-    let templates = TemplateRegistry::load(&config.templates_path(root))?;
-    let rules = RuleRegistry::load(&config.rules_path(root))?;
+    // Ensure the anansi subdirectory exists for the DB (vault may be empty on first boot)
+    let db_path = config.db_path(root);
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating db directory {}", parent.display()))?;
+    }
+
+    let db_pool = db::open_and_migrate(&db_path).await?;
+    let templates = TemplateRegistry::load(&config.templates_path(root)).unwrap_or_default();
+    let rules = RuleRegistry::load(&config.rules_path(root)).unwrap_or_default();
     let vault = Vault::new(root.to_path_buf(), &config.paths.web_dir);
     let llm = llm::build_client(&config.llm)?;
 

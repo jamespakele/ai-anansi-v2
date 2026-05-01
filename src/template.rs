@@ -130,6 +130,7 @@ impl Template {
     }
 }
 
+#[derive(Default)]
 pub struct TemplateRegistry {
     templates: HashMap<String, Template>,
 }

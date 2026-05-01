@@ -92,6 +92,33 @@ impl PipelineConfig {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            paths: PathsConfig {
+                web_dir: default_web_dir(),
+                rules_dir: default_rules_dir(),
+                templates_dir: default_templates_dir(),
+                db_file: default_db_file(),
+            },
+            llm: LlmConfig {
+                backend: default_backend(),
+                url: default_ollama_url(),
+                model: default_model(),
+                n_ctx: default_n_ctx(),
+                timeout_s: default_timeout_s(),
+                decomposition: InferSettings::default(),
+                extraction: InferSettings::default(),
+                synthesis: InferSettings::default(),
+                gemini: None,
+                openrouter: None,
+            },
+            server: ServerConfig::default(),
+            pipeline: PipelineConfig::default(),
+        }
+    }
+}
+
 fn default_backend() -> String { "ollama".to_string() }
 fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
 fn default_model() -> String { "qwen2.5:14b".to_string() }
@@ -137,10 +164,18 @@ fn default_host() -> String { "0.0.0.0".to_string() }
 impl Config {
     pub fn load(anansi_root: &Path) -> Result<Self> {
         let path = anansi_root.join("anansi").join("anansi.toml");
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading config at {}", path.display()))?;
-        let mut config: Config = toml::from_str(&text)?;
+        let mut config: Config = match std::fs::read_to_string(&path) {
+            Ok(text) => toml::from_str(&text)
+                .with_context(|| format!("parsing config at {}", path.display()))?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Config::default()
+            }
+            Err(e) => return Err(e).with_context(|| format!("reading config at {}", path.display())),
+        };
 
+        if let Ok(backend) = std::env::var("ANANSI_BACKEND") {
+            config.llm.backend = backend;
+        }
         if let Ok(url) = std::env::var("ANANSI_OLLAMA_URL") {
             config.llm.url = url;
         }
@@ -151,6 +186,12 @@ impl Config {
             config.server.mcp_port = port
                 .parse()
                 .with_context(|| format!("parsing ANANSI_MCP_PORT={port:?}"))?;
+        }
+        if let Ok(key) = std::env::var("ANANSI_GEMINI_API_KEY") {
+            config.llm.gemini.get_or_insert_default().api_key = Some(key);
+            if config.llm.backend == "ollama" {
+                config.llm.backend = "gemini".to_string();
+            }
         }
         if let Ok(key) = std::env::var("ANANSI_OPENROUTER_API_KEY") {
             config.llm.openrouter.get_or_insert_default().api_key = Some(key);
