@@ -21,7 +21,7 @@ services:
   webdav:
     image: ugeek/webdav:amd64
     volumes:
-      - ./data:/media:ro
+      - ./data:/media
     environment:
       - USERNAME=anansi
       - PASSWORD=anansi
