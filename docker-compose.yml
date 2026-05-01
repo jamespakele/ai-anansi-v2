@@ -27,5 +27,5 @@ services:
       - PASSWORD=anansi
       - TZ=Pacific/Honolulu
     ports:
-      - "100.118.188.14:8080:80"
+      - "100.118.188.14:9090:80"
     restart: unless-stopped
