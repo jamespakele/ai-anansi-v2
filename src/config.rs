@@ -148,7 +148,7 @@ impl Default for InferSettings {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     #[serde(default = "default_mcp_port")]
     pub mcp_port: u16,
@@ -160,6 +160,16 @@ pub struct ServerConfig {
 
 fn default_mcp_port() -> u16 { 3738 }
 fn default_host() -> String { "0.0.0.0".to_string() }
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            mcp_port: default_mcp_port(),
+            host: default_host(),
+            read_only: false,
+        }
+    }
+}
 
 impl Config {
     pub fn load(anansi_root: &Path) -> Result<Self> {
