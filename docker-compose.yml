@@ -17,3 +17,15 @@ services:
       - "traefik.http.services.anansi.loadbalancer.server.port=3738"
     restart: unless-stopped
 
+  # NFS share for remote DB viewing over Tailscale
+  nfs:
+    image: erichough/nfs-server
+    volumes:
+      - ./data:/data:ro
+    environment:
+      - NFS_EXPORT_0=/data *(ro,fsid=0,no_subtree_check,insecure)
+    cap_add:
+      - SYS_ADMIN
+    ports:
+      - "100.118.188.14:2049:2049"
+    restart: unless-stopped
