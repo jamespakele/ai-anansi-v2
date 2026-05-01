@@ -24,14 +24,9 @@ WORKDIR /app
 
 COPY --from=builder /app/target/release/anansi2 /usr/local/bin/anansi2
 
-ENV ANANSI_ROOT=/vault
-
-VOLUME ["/vault"]
-
 EXPOSE 3738
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD curl -f http://localhost:3738/health || exit 1
 
-ENTRYPOINT ["anansi2"]
-CMD ["serve", "--root", "/vault"]
+CMD ["anansi2", "serve", "--root", "/data"]

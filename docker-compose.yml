@@ -6,7 +6,7 @@ services:
     ports:
       - "127.0.0.1:3738:3738"
     volumes:
-      - ./vault:/vault
+      - anansi-data:/data
     environment:
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
     labels:
@@ -16,3 +16,7 @@ services:
       - "traefik.http.routers.anansi.tls.certresolver=letsencrypt"
       - "traefik.http.services.anansi.loadbalancer.server.port=3738"
     restart: unless-stopped
+
+volumes:
+  anansi-data:
+
