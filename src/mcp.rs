@@ -215,6 +215,17 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                         },
                         "required": ["entity_type", "name", "lede"]
                     }
+                },
+                {
+                    "name": "anansi_purge",
+                    "description": "Delete all notes, edges, and contributions from a specific import by source_id. Removes the source record too. Use anansi_search or Datasette to find source_ids.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "source_id": { "type": "string", "description": "UUID of the source record to purge." }
+                        },
+                        "required": ["source_id"]
+                    }
                 }
             ]
         }),
@@ -249,6 +260,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_relate" => tool_relate(state, id, args).await,
         "anansi_ingest_atomized" => tool_ingest_atomized(state, id, args).await,
         "anansi_capture" => tool_capture(state, id, args).await,
+        "anansi_purge" => tool_purge(state, id, args).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
 }
@@ -740,6 +752,79 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
                     "note_id": note_id,
                     "match_key": match_key,
                     "name": name,
+                })).unwrap_or_default()
+            }]
+        }),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// anansi_purge
+// ---------------------------------------------------------------------------
+
+async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+
+    if ctx.config.server.read_only {
+        return json_rpc_err(id, -32000, "this anansi instance is read-only");
+    }
+
+    let source_id = match args.get("source_id").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => return json_rpc_err(id, -32602, "Missing required argument: source_id"),
+    };
+
+    // Find all note IDs created from this source
+    let note_ids: Vec<String> = match sqlx::query_scalar::<_, String>(
+        "SELECT id FROM notes WHERE created_from = ?"
+    )
+    .bind(&source_id)
+    .fetch_all(&ctx.db)
+    .await {
+        Ok(ids) => ids,
+        Err(e) => return json_rpc_err(id, -32000, &format!("Query failed: {e:#}")),
+    };
+
+    if note_ids.is_empty() {
+        return json_rpc_err(id, -32000, &format!("No notes found for source_id {source_id}"));
+    }
+
+    // Delete edges where either side is a note from this source
+    let mut edges_deleted: u64 = 0;
+    for nid in &note_ids {
+        let r1 = sqlx::query("DELETE FROM edges WHERE source_note_id = ?")
+            .bind(nid).execute(&ctx.db).await;
+        let r2 = sqlx::query("DELETE FROM edges WHERE target_note_id = ?")
+            .bind(nid).execute(&ctx.db).await;
+        edges_deleted += r1.map(|r| r.rows_affected()).unwrap_or(0);
+        edges_deleted += r2.map(|r| r.rows_affected()).unwrap_or(0);
+    }
+
+    // Delete source contributions
+    let contribs = sqlx::query("DELETE FROM source_contributions WHERE source_id = ?")
+        .bind(&source_id).execute(&ctx.db).await;
+    let contribs_deleted = contribs.map(|r| r.rows_affected()).unwrap_or(0);
+
+    // Delete the notes
+    let notes = sqlx::query("DELETE FROM notes WHERE created_from = ?")
+        .bind(&source_id).execute(&ctx.db).await;
+    let notes_deleted = notes.map(|r| r.rows_affected()).unwrap_or(0);
+
+    // Delete the source record
+    let _ = sqlx::query("DELETE FROM sources WHERE id = ?")
+        .bind(&source_id).execute(&ctx.db).await;
+
+    json_rpc_ok(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({
+                    "status": "purged",
+                    "source_id": source_id,
+                    "notes_deleted": notes_deleted,
+                    "edges_deleted": edges_deleted,
+                    "contributions_deleted": contribs_deleted,
                 })).unwrap_or_default()
             }]
         }),
