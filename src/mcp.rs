@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::atomized_ingest;
 use crate::db::{self, EdgeRecord, now_rfc3339};
+use crate::export;
 use crate::pipeline::{ingest, IngestContext};
 
 // ---------------------------------------------------------------------------
@@ -91,6 +92,7 @@ pub fn router(ctx: Arc<IngestContext>) -> Router {
     Router::new()
         .route("/", post(handle_json_rpc))
         .route("/health", get(handle_health))
+        .route("/exports/{filename}", get(handle_export_download))
         .with_state(McpState { ctx })
 }
 
@@ -259,6 +261,30 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                         },
                         "required": ["source_id"]
                     }
+                },
+                {
+                    "name": "anansi_export_context",
+                    "description": "BFS graph traversal from a note, composing all connected notes into a single flat markdown document optimized for LLM consumption. Returns the full context inline.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string", "description": "Root note UUID to start BFS from." },
+                            "depth": { "type": "integer", "description": "BFS depth 1–5 (default 2)." }
+                        },
+                        "required": ["id"]
+                    }
+                },
+                {
+                    "name": "anansi_export_vault",
+                    "description": "BFS graph traversal from a note, exporting all connected notes as an Obsidian-compatible vault zip. Returns a download URL.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string", "description": "Root note UUID to start BFS from." },
+                            "depth": { "type": "integer", "description": "BFS depth 1–5 (default 2)." }
+                        },
+                        "required": ["id"]
+                    }
                 }
             ]
         }),
@@ -295,6 +321,8 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_ingest_atomized" => tool_ingest_atomized(state, id, args).await,
         "anansi_capture" => tool_capture(state, id, args).await,
         "anansi_purge" => tool_purge(state, id, args).await,
+        "anansi_export_context" => tool_export_context(state, id, args).await,
+        "anansi_export_vault" => tool_export_vault(state, id, args).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
 }
@@ -953,4 +981,108 @@ async fn handle_health(State(state): State<McpState>) -> impl IntoResponse {
     };
 
     (status_code, Json(body))
+}
+
+// ---------------------------------------------------------------------------
+// anansi_export_context
+// ---------------------------------------------------------------------------
+
+async fn tool_export_context(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let note_id = match args.get("id").and_then(|v| v.as_str()) {
+        Some(i) => i.to_string(),
+        None => return json_rpc_err(id, -32602, "Missing required argument: id"),
+    };
+    let depth = args
+        .get("depth")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2)
+        .clamp(1, 5) as usize;
+
+    match export::export_context(&state.ctx.db, &note_id, depth).await {
+        Ok(doc) => json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": doc
+                }]
+            }),
+        ),
+        Err(e) => json_rpc_err(id, -32000, &format!("Export failed: {e:#}")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// anansi_export_vault
+// ---------------------------------------------------------------------------
+
+async fn tool_export_vault(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let note_id = match args.get("id").and_then(|v| v.as_str()) {
+        Some(i) => i.to_string(),
+        None => return json_rpc_err(id, -32602, "Missing required argument: id"),
+    };
+    let depth = args
+        .get("depth")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2)
+        .clamp(1, 5) as usize;
+
+    let exports_dir = state.ctx.anansi_root.join("exports");
+    match export::export_vault(&state.ctx.db, &note_id, depth, &exports_dir).await {
+        Ok(zip_name) => {
+            let url = state.ctx.config.server.public_url
+                .as_deref()
+                .map(|base| format!("{base}/exports/{zip_name}"))
+                .unwrap_or_else(|| format!("/exports/{zip_name}"));
+            json_rpc_ok(
+                id,
+                json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string(&json!({
+                            "status": "ready",
+                            "filename": zip_name,
+                            "download_url": url,
+                        })).unwrap_or_default()
+                    }]
+                }),
+            )
+        }
+        Err(e) => json_rpc_err(id, -32000, &format!("Vault export failed: {e:#}")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /exports/:filename  — serve generated zip files
+// ---------------------------------------------------------------------------
+
+async fn handle_export_download(
+    State(state): State<McpState>,
+    axum::extract::Path(filename): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    // Security: reject any path traversal
+    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
+        return (
+            StatusCode::BAD_REQUEST,
+            [("content-type", "text/plain")],
+            axum::body::Bytes::from("Invalid filename"),
+        );
+    }
+
+    let path = state.ctx.anansi_root.join("exports").join(&filename);
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => (
+            StatusCode::OK,
+            [(
+                "content-type",
+                "application/zip",
+            )],
+            axum::body::Bytes::from(bytes),
+        ),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            [("content-type", "text/plain")],
+            axum::body::Bytes::from("Export not found"),
+        ),
+    }
 }

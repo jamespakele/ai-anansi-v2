@@ -11,3 +11,4 @@ pub mod pipeline;
 pub mod mcp;
 pub mod atomized_parser;
 pub mod atomized_ingest;
+pub mod export;

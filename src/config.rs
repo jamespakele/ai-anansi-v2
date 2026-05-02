@@ -156,6 +156,8 @@ pub struct ServerConfig {
     pub host: String,
     #[serde(default)]
     pub read_only: bool,
+    /// Public base URL used to generate export download links, e.g. "https://vps.pakele.ai"
+    pub public_url: Option<String>,
 }
 
 fn default_mcp_port() -> u16 { 3738 }
@@ -167,6 +169,7 @@ impl Default for ServerConfig {
             mcp_port: default_mcp_port(),
             host: default_host(),
             read_only: false,
+            public_url: None,
         }
     }
 }
