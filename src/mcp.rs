@@ -67,6 +67,25 @@ fn json_rpc_err(id: Value, code: i32, message: &str) -> Json<Value> {
     }))
 }
 
+/// Validate the skill_token parameter against the ANANSI_SKILL_TOKEN env var.
+/// Returns None if valid, or an error Json response if invalid.
+fn check_skill_token(id: &Value, args: &Value) -> Option<Json<Value>> {
+    let expected = std::env::var("ANANSI_SKILL_TOKEN").unwrap_or_default();
+    if expected.is_empty() {
+        return None; // no token configured — open access
+    }
+    let provided = args.get("skill_token").and_then(|v| v.as_str()).unwrap_or("");
+    if provided == expected {
+        None
+    } else {
+        Some(json_rpc_err(
+            id.clone(),
+            -32000,
+            "Direct MCP calls not permitted. Route through the anansi skill.",
+        ))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Router / serve
 // ---------------------------------------------------------------------------
@@ -544,6 +563,8 @@ async fn tool_edges(state: McpState, id: Value, args: Value) -> Json<Value> {
 async fn tool_relate(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
+    if let Some(err) = check_skill_token(&id, &args) { return err; }
+
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
     }
@@ -597,6 +618,8 @@ async fn tool_relate(state: McpState, id: Value, args: Value) -> Json<Value> {
 
 async fn tool_ingest_atomized(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
+
+    if let Some(err) = check_skill_token(&id, &args) { return err; }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -657,6 +680,8 @@ async fn tool_ingest_atomized(state: McpState, id: Value, args: Value) -> Json<V
 
 async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
+
+    if let Some(err) = check_skill_token(&id, &args) { return err; }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -765,6 +790,8 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
 
 async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
+
+    if let Some(err) = check_skill_token(&id, &args) { return err; }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");

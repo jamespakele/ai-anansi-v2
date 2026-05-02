@@ -22,3 +22,4 @@ jobs:
 
           environment-variables: |
             ANANSI_GEMINI_API_KEY=${{ secrets.ANANSI_GEMINI_API_KEY }}
+            ANANSI_SKILL_TOKEN=${{ secrets.ANANSI_SKILL_TOKEN }}

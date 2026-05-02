@@ -9,6 +9,7 @@ services:
       - ./data:/data
     environment:
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
+      - ANANSI_SKILL_TOKEN=${ANANSI_SKILL_TOKEN:-}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.anansi.rule=Host(`vps.pakele.ai`)"
