@@ -886,22 +886,33 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
         None => return json_rpc_err(id, -32602, "Missing required argument: source_id"),
     };
 
-    // Find all note IDs created from this source
-    let note_ids: Vec<String> = match sqlx::query_scalar::<_, String>(
-        "SELECT id FROM notes WHERE created_from = ?"
-    )
-    .bind(&source_id)
-    .fetch_all(&ctx.db)
-    .await {
-        Ok(ids) => ids,
-        Err(e) => return json_rpc_err(id, -32000, &format!("Query failed: {e:#}")),
+    // Find all note IDs associated with this source:
+    // 1. Notes where created_from = source_id (direct creation)
+    // 2. Notes referenced in source_contributions for this source (merged notes)
+    let note_ids: Vec<String> = {
+        let direct = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM notes WHERE created_from = ?"
+        )
+        .bind(&source_id)
+        .fetch_all(&ctx.db)
+        .await
+        .unwrap_or_default();
+
+        let contributed = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT note_id FROM source_contributions WHERE source_id = ?"
+        )
+        .bind(&source_id)
+        .fetch_all(&ctx.db)
+        .await
+        .unwrap_or_default();
+
+        // Union the two sets
+        let mut ids: std::collections::HashSet<String> = direct.into_iter().collect();
+        ids.extend(contributed);
+        ids.into_iter().collect()
     };
 
-    if note_ids.is_empty() {
-        return json_rpc_err(id, -32000, &format!("No notes found for source_id {source_id}"));
-    }
-
-    // Delete edges where either side is a note from this source
+    // Delete edges connected to any of these notes
     let mut edges_deleted: u64 = 0;
     for nid in &note_ids {
         let r1 = sqlx::query("DELETE FROM edges WHERE source_note_id = ?")
@@ -912,19 +923,43 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
         edges_deleted += r2.map(|r| r.rows_affected()).unwrap_or(0);
     }
 
-    // Delete source contributions
-    let contribs = sqlx::query("DELETE FROM source_contributions WHERE source_id = ?")
-        .bind(&source_id).execute(&ctx.db).await;
-    let contribs_deleted = contribs.map(|r| r.rows_affected()).unwrap_or(0);
+    // Delete source contributions for this source
+    let contribs_deleted = sqlx::query("DELETE FROM source_contributions WHERE source_id = ?")
+        .bind(&source_id)
+        .execute(&ctx.db)
+        .await
+        .map(|r| r.rows_affected())
+        .unwrap_or(0);
 
-    // Delete the notes
-    let notes = sqlx::query("DELETE FROM notes WHERE created_from = ?")
-        .bind(&source_id).execute(&ctx.db).await;
-    let notes_deleted = notes.map(|r| r.rows_affected()).unwrap_or(0);
+    // Delete notes — explicitly sync FTS5 index first to avoid trigger failures
+    // on DBs where the FTS index may be out of sync with the notes table.
+    let mut notes_deleted: u64 = 0;
+    for nid in &note_ids {
+        // Sync FTS5: delete the entry using content from the notes table
+        let _ = sqlx::query(
+            "INSERT INTO notes_fts(notes_fts, rowid, name, lede, why, content) \
+             SELECT 'delete', rowid, name, lede, why, content FROM notes WHERE id = ?"
+        )
+        .bind(nid)
+        .execute(&ctx.db)
+        .await;
 
-    // Delete the source record
+        // Now delete the note — the AFTER DELETE trigger will attempt FTS cleanup
+        // but since we already removed it above, it's a no-op.
+        if let Ok(r) = sqlx::query("DELETE FROM notes WHERE id = ?")
+            .bind(nid)
+            .execute(&ctx.db)
+            .await
+        {
+            notes_deleted += r.rows_affected();
+        }
+    }
+
+    // Always delete the source record, even if 0 notes were found
     let _ = sqlx::query("DELETE FROM sources WHERE id = ?")
-        .bind(&source_id).execute(&ctx.db).await;
+        .bind(&source_id)
+        .execute(&ctx.db)
+        .await;
 
     json_rpc_ok(
         id,
@@ -942,6 +977,7 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
         }),
     )
 }
+
 
 // ---------------------------------------------------------------------------
 // GET /health
