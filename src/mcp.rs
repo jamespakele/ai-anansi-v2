@@ -398,6 +398,7 @@ async fn tool_get(state: McpState, id: Value, args: Value) -> Json<Value> {
                 "lede": note.lede,
                 "why": note.why,
                 "content": note.content,
+                "created_from": note.created_from,
                 "has_conflicts": note.has_conflicts,
                 "conflicts_updated_at": note.conflicts_updated_at,
                 "merge_category": note.merge_category,
