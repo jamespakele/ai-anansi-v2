@@ -922,6 +922,10 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
         edges_deleted += r1.map(|r| r.rows_affected()).unwrap_or(0);
         edges_deleted += r2.map(|r| r.rows_affected()).unwrap_or(0);
     }
+    // Also delete any edges attributed to this source via from_source FK
+    let r3 = sqlx::query("DELETE FROM edges WHERE from_source = ?")
+        .bind(&source_id).execute(&ctx.db).await;
+    edges_deleted += r3.map(|r| r.rows_affected()).unwrap_or(0);
 
     // Delete source contributions for this source
     let contribs_deleted = sqlx::query("DELETE FROM source_contributions WHERE source_id = ?")
