@@ -144,11 +144,11 @@ fn handle_tools_list(id: Value) -> Json<Value> {
             "tools": [
                 {
                     "name": "anansi_search",
-                    "description": "Search notes by name, lede, or why using LIKE.",
+                    "description": "Full-text search across note name, lede, why, and content using FTS5. Supports FTS5 query syntax (e.g. phrase in quotes, AND/OR, prefix*). Use for keyword and concept lookups.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
-                            "query": { "type": "string", "description": "Search term." },
+                            "query": { "type": "string", "description": "FTS5 search query. Plain terms, quoted phrases, or operators like AND/OR/NOT." },
                             "limit": { "type": "integer", "description": "Max results (default 20)." }
                         },
                         "required": ["query"]
@@ -162,6 +162,19 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                         "properties": {
                             "id": { "type": "string", "description": "Note UUID." },
                             "match_key": { "type": "string", "description": "Note match_key (entity_type:slug)." }
+                        }
+                    }
+                },
+                {
+                    "name": "anansi_filter",
+                    "description": "Filter notes by entity_type and/or date range. All parameters optional. Use to list all notes of a type, or all notes updated in a time window.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "entity_type": { "type": "string", "description": "Filter by type, e.g. person, organization, project, event, topic, note." },
+                            "after": { "type": "string", "description": "ISO 8601 datetime — return notes updated at or after this timestamp." },
+                            "before": { "type": "string", "description": "ISO 8601 datetime — return notes updated at or before this timestamp." },
+                            "limit": { "type": "integer", "description": "Max results (default 50)." }
                         }
                     }
                 },
@@ -276,6 +289,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_ingest" => json_rpc_err(id, -32000, "anansi_ingest is disabled. Use anansi_ingest_atomized instead."),
         "anansi_search" => tool_search(state, id, args).await,
         "anansi_get" => tool_get(state, id, args).await,
+        "anansi_filter" => tool_filter(state, id, args).await,
         "anansi_edges" => tool_edges(state, id, args).await,
         "anansi_relate" => tool_relate(state, id, args).await,
         "anansi_ingest_atomized" => tool_ingest_atomized(state, id, args).await,
@@ -384,6 +398,47 @@ async fn tool_search(state: McpState, id: Value, args: Value) -> Json<Value> {
             )
         }
         Err(e) => json_rpc_err(id, -32000, &format!("Search failed: {e}")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// anansi_filter
+// ---------------------------------------------------------------------------
+
+async fn tool_filter(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let entity_type = args.get("entity_type").and_then(|v| v.as_str());
+    let after       = args.get("after").and_then(|v| v.as_str());
+    let before      = args.get("before").and_then(|v| v.as_str());
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(50)
+        .clamp(1, 1000);
+
+    match db::filter_notes(&state.ctx.db, entity_type, after, before, limit).await {
+        Ok(notes) => {
+            let items: Vec<Value> = notes
+                .into_iter()
+                .map(|n| json!({
+                    "id": n.id,
+                    "name": n.name,
+                    "entity_type": n.entity_type,
+                    "match_key": n.match_key,
+                    "lede": n.lede,
+                    "updated_at": n.updated_at,
+                }))
+                .collect();
+            json_rpc_ok(
+                id,
+                json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string(&items).unwrap_or_default()
+                    }]
+                }),
+            )
+        }
+        Err(e) => json_rpc_err(id, -32000, &format!("Filter failed: {e}")),
     }
 }
 

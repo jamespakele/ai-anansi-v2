@@ -313,25 +313,57 @@ pub async fn edges_for_note(pool: &DbPool, note_id: &str) -> Result<Vec<EdgeReco
 }
 
 pub async fn search_notes(pool: &DbPool, query: &str, limit: i64) -> Result<Vec<NoteRecord>> {
-    let escaped = query
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_");
-    let pattern = format!("%{escaped}%");
+    // Use FTS5 for fast full-text search across name, lede, why, and content.
+    // Falls back gracefully: if the FTS index doesn't exist yet (old DB), the
+    // query will fail and the caller will surface the error.
     let rows = sqlx::query(
-        "SELECT * FROM notes \
-         WHERE name LIKE ? ESCAPE '\\' OR lede LIKE ? ESCAPE '\\' OR why LIKE ? ESCAPE '\\' \
-         ORDER BY updated_at DESC \
+        "SELECT n.* FROM notes n \
+         JOIN notes_fts f ON n.rowid = f.rowid \
+         WHERE notes_fts MATCH ? \
+         ORDER BY n.updated_at DESC \
          LIMIT ?",
     )
-    .bind(&pattern)
-    .bind(&pattern)
-    .bind(&pattern)
+    .bind(query)
     .bind(limit)
     .fetch_all(pool)
     .await?;
 
-    Ok(rows.into_iter().map(|row| row_to_note(row)).collect())
+    Ok(rows.into_iter().map(row_to_note).collect())
+}
+
+/// Filter notes by optional entity_type and/or date range (ISO 8601 strings).
+/// All parameters are optional — omit to get all notes ordered by recency.
+pub async fn filter_notes(
+    pool: &DbPool,
+    entity_type: Option<&str>,
+    after: Option<&str>,
+    before: Option<&str>,
+    limit: i64,
+) -> Result<Vec<NoteRecord>> {
+    // Build a dynamic WHERE clause
+    let mut conditions: Vec<&str> = Vec::new();
+    if entity_type.is_some() { conditions.push("entity_type = ?"); }
+    if after.is_some()       { conditions.push("updated_at >= ?"); }
+    if before.is_some()      { conditions.push("updated_at <= ?"); }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    };
+
+    let sql = format!(
+        "SELECT * FROM notes {where_clause} ORDER BY updated_at DESC LIMIT ?"
+    );
+
+    let mut q = sqlx::query(&sql);
+    if let Some(et) = entity_type { q = q.bind(et); }
+    if let Some(a)  = after       { q = q.bind(a); }
+    if let Some(b)  = before      { q = q.bind(b); }
+    q = q.bind(limit);
+
+    let rows = q.fetch_all(pool).await?;
+    Ok(rows.into_iter().map(row_to_note).collect())
 }
 
 pub async fn find_contribution_by_source_toc(
