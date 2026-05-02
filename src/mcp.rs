@@ -67,15 +67,12 @@ fn json_rpc_err(id: Value, code: i32, message: &str) -> Json<Value> {
     }))
 }
 
-/// Validate the skill_token parameter against the ANANSI_SKILL_TOKEN env var.
-/// Returns None if valid, or an error Json response if invalid.
-fn check_skill_token(id: &Value, args: &Value) -> Option<Json<Value>> {
-    let expected = std::env::var("ANANSI_SKILL_TOKEN").unwrap_or_default();
-    if expected.is_empty() {
-        return None; // no token configured — open access
-    }
-    let provided = args.get("skill_token").and_then(|v| v.as_str()).unwrap_or("");
-    if provided == expected {
+/// Reject calls that didn't come through the anansi skill.
+/// The skill passes `source: "skill"`; direct MCP calls default to `"mcp"`.
+/// Returns None if the call is allowed, or an error Json response if not.
+fn check_skill_source(id: &Value, args: &Value) -> Option<Json<Value>> {
+    let source = args.get("source").and_then(|v| v.as_str()).unwrap_or("mcp");
+    if source == "skill" {
         None
     } else {
         Some(json_rpc_err(
@@ -190,7 +187,8 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                             "source_id": { "type": "string", "description": "Source note UUID." },
                             "target_id": { "type": "string", "description": "Target note UUID." },
                             "edge_type": { "type": "string", "description": "Relationship type label." },
-                            "why": { "type": "string", "description": "Optional reason for the edge." }
+                            "why": { "type": "string", "description": "Optional reason for the edge." },
+                            "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." }
                         },
                         "required": ["source_id", "target_id", "edge_type"]
                     }
@@ -216,7 +214,8 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                             "source_path": {
                                 "type": "string",
                                 "description": "Optional. Path to the original source document being atomized (for source record attribution)."
-                            }
+                            },
+                            "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." }
                         }
                     }
                 },
@@ -230,7 +229,8 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                             "name": { "type": "string", "description": "Display name, e.g. 'John Doe' or 'Meeting with Lynn'." },
                             "lede": { "type": "string", "description": "The single most important fact about this entity." },
                             "why": { "type": "string", "description": "Optional. Why this entity matters — one sentence of context." },
-                            "content": { "type": "string", "description": "Optional. Additional details, bullet points, structured info." }
+                            "content": { "type": "string", "description": "Optional. Additional details, bullet points, structured info." },
+                            "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." }
                         },
                         "required": ["entity_type", "name", "lede"]
                     }
@@ -241,7 +241,8 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                     "inputSchema": {
                         "type": "object",
                         "properties": {
-                            "source_id": { "type": "string", "description": "UUID of the source record to purge." }
+                            "source_id": { "type": "string", "description": "UUID of the source record to purge." },
+                            "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." }
                         },
                         "required": ["source_id"]
                     }
@@ -563,7 +564,7 @@ async fn tool_edges(state: McpState, id: Value, args: Value) -> Json<Value> {
 async fn tool_relate(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_token(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) { return err; }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -619,7 +620,7 @@ async fn tool_relate(state: McpState, id: Value, args: Value) -> Json<Value> {
 async fn tool_ingest_atomized(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_token(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) { return err; }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -681,7 +682,7 @@ async fn tool_ingest_atomized(state: McpState, id: Value, args: Value) -> Json<V
 async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_token(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) { return err; }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -791,7 +792,7 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
 async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_token(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) { return err; }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
