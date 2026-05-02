@@ -269,7 +269,6 @@ mod tests {
             toc_author: None,
             toc_generated_at: None,
             ingested_at: now_rfc3339(),
-            toc_text: None,
         }
     }
 

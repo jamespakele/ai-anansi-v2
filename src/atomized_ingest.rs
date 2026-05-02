@@ -98,7 +98,6 @@ pub async fn ingest_atomized(
         toc_author: None,
         toc_generated_at: None,
         ingested_at: now_rfc3339(),
-        toc_text: Some(toc_text.clone()),
     };
     insert_source(pool, &src).await?;
 

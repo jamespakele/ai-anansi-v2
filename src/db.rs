@@ -60,7 +60,6 @@ pub struct SourceRecord {
     pub toc_author: Option<String>,
     pub toc_generated_at: Option<String>,
     pub ingested_at: String,
-    pub toc_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -110,8 +109,8 @@ pub async fn insert_source(pool: &DbPool, rec: &SourceRecord) -> Result<()> {
     sqlx::query(
         "INSERT INTO sources \
          (id, source_path, title, source_type, content_hash, toc_hash, \
-          preprocessed_toc, toc_author, toc_generated_at, ingested_at, toc_text) \
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+          preprocessed_toc, toc_author, toc_generated_at, ingested_at) \
+         VALUES (?,?,?,?,?,?,?,?,?,?)",
     )
     .bind(&rec.id)
     .bind(&rec.source_path)
@@ -123,7 +122,6 @@ pub async fn insert_source(pool: &DbPool, rec: &SourceRecord) -> Result<()> {
     .bind(&rec.toc_author)
     .bind(&rec.toc_generated_at)
     .bind(&rec.ingested_at)
-    .bind(&rec.toc_text)
     .execute(pool)
     .await?;
     Ok(())
@@ -165,7 +163,6 @@ fn row_to_source(row: sqlx::sqlite::SqliteRow) -> SourceRecord {
         toc_author: row.get("toc_author"),
         toc_generated_at: row.get("toc_generated_at"),
         ingested_at: row.get("ingested_at"),
-        toc_text: row.get("toc_text"),
     }
 }
 

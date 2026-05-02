@@ -671,7 +671,6 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
         toc_author: Some(toc_author.clone()),
         toc_generated_at: Some(now_rfc3339()),
         ingested_at: now_rfc3339(),
-        toc_text: Some(toc_text.clone()),
     };
     insert_source(&ctx.db, &source_rec).await
         .with_context(|| "inserting source record")?;
