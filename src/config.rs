@@ -209,6 +209,9 @@ impl Config {
         if let Ok(key) = std::env::var("ANANSI_OPENROUTER_API_KEY") {
             config.llm.openrouter.get_or_insert_default().api_key = Some(key);
         }
+        if let Ok(url) = std::env::var("ANANSI_PUBLIC_URL") {
+            config.server.public_url = Some(url);
+        }
 
         Ok(config)
     }

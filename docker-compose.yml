@@ -10,6 +10,7 @@ services:
     environment:
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
       - ANANSI_SKILL_TOKEN=${ANANSI_SKILL_TOKEN:-}
+      - ANANSI_PUBLIC_URL=https://vps.pakele.ai
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.anansi.rule=Host(`vps.pakele.ai`)"
