@@ -4,11 +4,15 @@
 **Reference:** `anansi-v2-spec.md` §10 (Database Schema).
 **Prerequisite:** Builds 01–07 complete and deployed. Current `cargo build` passes.
 **Motivation:** SQLite WAL + FTS5 content-backed tables have caused repeated index corruption in production, requiring manual stop-container-repair-restart cycles. PostgreSQL eliminates this entire class of failure: built-in ACID, native full-text search via `tsvector`, no WAL reader coordination problems, and a clean separation between reader and writer connections.
-**Backend choice:** Self-hosted `postgres:16-alpine` on the VPS via docker-compose. No Supabase dependency — keeps everything local, enables pgvector in a future build.
+**Backend choice:** Self-hosted `pgvector/pgvector:pg16` on the VPS via docker-compose — PostgreSQL 16 with the pgvector extension pre-installed. No Supabase dependency, everything stays local. pgvector is enabled from day one so the `embedding vector(768)` column and HNSW index are part of the initial schema, not a future migration.
 
 **Does NOT touch:** Business logic in `src/pipeline.rs`, `src/merger.rs`, `src/atomized_ingest.rs`, `src/atomized_parser.rs`, `src/mcp.rs` (tool handlers), `src/template.rs`, `src/prompt.rs`, prompt files, templates, `%Rules/`.
 
-**Output:** Anansi running entirely on PostgreSQL with full-text search via tsvector GIN index, no SQLite files on disk, Datasette replaced by pgAdmin or direct psql for DB inspection.
+**Output:** Anansi running entirely on PostgreSQL with:
+- Full-text keyword search via `tsvector` GIN index
+- Semantic vector search via `pgvector` HNSW index (cosine similarity, 768-dim Gemini embeddings)
+- No SQLite files on disk
+- Datasette replaced by direct `psql` or pgAdmin for DB inspection
 
 ---
 
@@ -46,7 +50,7 @@ version: "3.8"
 
 services:
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_DB: anansi
@@ -113,7 +117,7 @@ ANANSI_GEMINI_API_KEY=<existing key>
 
 ## Step 2 — Cargo.toml
 
-Change the `sqlx` dependency features from `sqlite` to `postgres`:
+Change the `sqlx` dependency features and add the `pgvector` crate:
 
 ```toml
 [dependencies]
@@ -121,8 +125,11 @@ Change the `sqlx` dependency features from `sqlite` to `postgres`:
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 
 # After:
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "migrate"] }
+pgvector = { version = "0.4", features = ["sqlx"] }
 ```
+
+The `pgvector` crate provides the `Vector` newtype that sqlx uses to bind/retrieve `vector(768)` columns.
 
 Also remove any `rusqlite` dependency if present.
 
@@ -244,7 +251,9 @@ Delete all existing migration files. Create new ones in PostgreSQL dialect.
 ### migrations/0001_schema.sql
 
 ```sql
--- Core Anansi schema for PostgreSQL
+-- Core Anansi schema for PostgreSQL + pgvector
+
+CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS sources (
     id TEXT PRIMARY KEY,
@@ -276,7 +285,7 @@ CREATE TABLE IF NOT EXISTS notes (
     source_count BIGINT NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    -- Full-text search vector — auto-updated via trigger
+    -- Full-text search — auto-maintained computed column, no triggers
     fts_vector tsvector GENERATED ALWAYS AS (
         to_tsvector('english',
             COALESCE(name, '') || ' ' ||
@@ -291,6 +300,23 @@ CREATE INDEX IF NOT EXISTS idx_notes_match ON notes(match_key);
 CREATE INDEX IF NOT EXISTS idx_notes_type ON notes(entity_type);
 CREATE INDEX IF NOT EXISTS idx_notes_created_from ON notes(created_from);
 CREATE INDEX IF NOT EXISTS idx_notes_fts ON notes USING gin(fts_vector);
+
+-- Embeddings in a separate table — keeps notes rows thin.
+-- ON DELETE CASCADE: purging a note automatically removes its embedding.
+-- Composite PK on (note_id, model) allows storing multiple embedding models
+-- side-by-side without a schema change.
+CREATE TABLE IF NOT EXISTS note_embeddings (
+    note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    model   TEXT NOT NULL DEFAULT 'text-embedding-004',
+    embedding vector(768) NOT NULL,
+    embedded_at TEXT NOT NULL,
+    PRIMARY KEY (note_id, model)
+);
+
+-- HNSW index for fast approximate cosine-similarity search
+CREATE INDEX IF NOT EXISTS idx_note_embeddings_hnsw ON note_embeddings
+    USING hnsw(embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
 
 CREATE TABLE IF NOT EXISTS source_contributions (
     id TEXT PRIMARY KEY,
@@ -337,10 +363,15 @@ VALUES (
 ```
 
 **Notes on the schema:**
-- `fts_vector` is a `GENERATED ALWAYS AS ... STORED` computed column. PostgreSQL automatically updates it whenever `name`, `lede`, `why`, or `content` change. No triggers needed — the database engine handles it.
-- The FTS5 virtual table, its shadow tables, and all three trigger functions are gone. Zero maintenance surface.
-- `REAL` maps to PostgreSQL `DOUBLE PRECISION` — sqlx handles this automatically.
+- `CREATE EXTENSION IF NOT EXISTS vector` enables pgvector. The `pgvector/pgvector:pg16` Docker image ships the extension pre-installed.
+- `fts_vector` is a `GENERATED ALWAYS AS ... STORED` computed column. No triggers — PostgreSQL maintains it automatically on every write.
+- `note_embeddings` is a separate table — keeps `notes` rows thin. All regular note reads (search, lookup, ingest) never touch the embedding data.
+- `ON DELETE CASCADE` on `note_embeddings.note_id` means purging a note automatically removes its embedding — no manual cleanup in the purge tool.
+- `PRIMARY KEY (note_id, model)` allows storing embeddings from multiple models (e.g., swap from `text-embedding-004` to a future model without a migration — just add a new row).
+- HNSW params: `m=16, ef_construction=64` are the defaults, suitable for up to ~100k notes. Tune upward if needed.
+- `REAL` → PostgreSQL `DOUBLE PRECISION` — sqlx handles this automatically.
 - `ON CONFLICT (id) DO NOTHING` replaces SQLite's `INSERT OR IGNORE`.
+- The FTS5 virtual table, its shadow tables, and all three trigger functions are gone entirely.
 
 **Delete all other migration files** (0002, 0003, 0004, 0005) — they are SQLite-specific. The new 0001 is the complete schema from scratch.
 
@@ -378,9 +409,7 @@ Also update the `anansi_search` tool's description in the MCP schema to remove t
 Remove the `INSERT INTO notes_fts(notes_fts) VALUES('rebuild')` call from `tool_purge` — it no longer exists. The purge loop becomes:
 
 ```rust
-// Delete notes directly — FK cascade handles nothing (no cascade defined),
-// so delete in dependency order: edges → contributions → notes → sources
-// (already done above). No FTS maintenance needed — tsvector is computed.
+// Delete notes directly. tsvector and embedding columns are managed by PG.
 for nid in &note_ids {
     if let Ok(r) = sqlx::query("DELETE FROM notes WHERE id = $1")
         .bind(nid)
@@ -390,8 +419,138 @@ for nid in &note_ids {
         notes_deleted += r.rows_affected();
     }
 }
-// No FTS rebuild needed — computed column updates automatically on DELETE.
+// No FTS rebuild, no trigger management — PostgreSQL handles everything.
 ```
+
+---
+
+## Step 7b — Add anansi_embed and anansi_search_semantic to src/mcp.rs
+
+Two new MCP tools for the semantic layer:
+
+### `anansi_embed` — generate and store embeddings
+
+Calls Gemini `text-embedding-004` and writes the resulting vector to `notes.embedding` for one note or a batch. Called by the Researcher cowork skill after ingestion.
+
+**Input schema:**
+```json
+{
+  "note_id": "<uuid>  — embed a single note",
+  "batch": "<optional: true>  — embed all notes where embedding IS NULL (max 100 per call)"
+}
+```
+
+**Implementation sketch:**
+```rust
+async fn tool_embed(ctx: &AppCtx, id: Value, params: Value) -> Value {
+    use pgvector::Vector;
+
+    // Determine which note IDs to embed
+    let note_ids: Vec<String> = if params["batch"].as_bool().unwrap_or(false) {
+        sqlx::query_scalar(
+            "SELECT id FROM notes WHERE embedding IS NULL LIMIT 100"
+        )
+        .fetch_all(&ctx.db).await.unwrap_or_default()
+    } else {
+        vec![params["note_id"].as_str().unwrap_or("").to_string()]
+    };
+
+    let model = "text-embedding-004";
+    let mut embedded = 0usize;
+    for nid in &note_ids {
+        // Fetch note text
+        let text: Option<String> = sqlx::query_scalar(
+            "SELECT name || ' ' || COALESCE(lede,'') || ' ' || COALESCE(why,'') \
+             || ' ' || COALESCE(content,'') FROM notes WHERE id = $1"
+        )
+        .bind(&nid)
+        .fetch_optional(&ctx.db).await.unwrap_or(None);
+
+        let Some(text) = text else { continue; };
+
+        // Call Gemini embeddings API
+        let vec = gemini_embed(&ctx.config, &text).await?;
+        let vector = Vector::from(vec);
+
+        // Upsert into note_embeddings (separate table, notes stays thin)
+        sqlx::query(
+            "INSERT INTO note_embeddings (note_id, model, embedding, embedded_at) \
+             VALUES ($1, $2, $3, NOW()::TEXT) \
+             ON CONFLICT (note_id, model) DO UPDATE SET embedding = EXCLUDED.embedding, \
+             embedded_at = EXCLUDED.embedded_at"
+        )
+        .bind(&nid)
+        .bind(model)
+        .bind(&vector)
+        .execute(&ctx.db).await.ok();
+        embedded += 1;
+    }
+
+    json_rpc_ok(id, json!({ "content": [{ "type": "text",
+        "text": format!("{embedded} notes embedded") }] }))
+}
+```
+
+Add a `gemini_embed(config, text) -> Result<Vec<f32>>` helper in `src/llm.rs` (or a new `src/embed.rs`) that calls:
+```
+POST https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent
+{
+  "model": "models/text-embedding-004",
+  "content": { "parts": [{ "text": "<text>" }] },
+  "taskType": "RETRIEVAL_DOCUMENT"
+}
+```
+The response contains `embedding.values` — a `Vec<f32>` of length 768.
+
+### `anansi_search_semantic` — cosine-similarity search
+
+**Input schema:**
+```json
+{
+  "query": "<natural language query>",
+  "limit": 10,
+  "model": "text-embedding-004  (optional, defaults to text-embedding-004)"
+}
+```
+
+**Implementation sketch:**
+```rust
+async fn tool_search_semantic(ctx: &AppCtx, id: Value, params: Value) -> Value {
+    use pgvector::Vector;
+
+    let query = params["query"].as_str().unwrap_or("");
+    let limit = params["limit"].as_i64().unwrap_or(10).min(50);
+
+    // Embed the query
+    let vec = gemini_embed(&ctx.config, query).await?;
+    let vector = Vector::from(vec);
+
+    let model = params["model"].as_str().unwrap_or("text-embedding-004");
+
+    // Cosine similarity search — <=> is pgvector's cosine distance operator.
+    // JOIN to note_embeddings keeps the notes table scan-free.
+    let rows = sqlx::query(
+        "SELECT n.id, n.name, n.entity_type, n.lede, n.match_key, \
+         1 - (ne.embedding <=> $1) AS similarity \
+         FROM note_embeddings ne \
+         JOIN notes n ON n.id = ne.note_id \
+         WHERE ne.model = $2 \
+         ORDER BY ne.embedding <=> $1 \
+         LIMIT $3"
+    )
+    .bind(&vector)
+    .bind(model)
+    .bind(limit)
+    .fetch_all(&ctx.db)
+    .await
+    .unwrap_or_default();
+
+    // Format results same as anansi_search
+    // ...
+}
+```
+
+Register both tools in the MCP tool dispatch and schema in `src/mcp.rs`.
 
 ---
 
@@ -499,4 +658,4 @@ Supabase is PostgreSQL under the hood, but it adds:
 - Free tier limits (500MB storage, pausing after inactivity)
 - Dependency on a third-party service for a local-first tool
 
-The self-hosted postgres container on the VPS gives us everything we need: reliability, full control, pgvector for future embeddings, and zero additional operational cost.
+The self-hosted postgres container on the VPS gives us everything we need: reliability, full control, pgvector enabled from day one, and zero additional operational cost.
