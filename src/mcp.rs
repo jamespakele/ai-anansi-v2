@@ -935,21 +935,11 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
         .map(|r| r.rows_affected())
         .unwrap_or(0);
 
-    // Delete notes — explicitly sync FTS5 index first to avoid trigger failures
-    // on DBs where the FTS index may be out of sync with the notes table.
+    // Delete notes directly. The AFTER DELETE trigger handles FTS5 cleanup.
+    // We do NOT pre-sync the FTS index — doing so causes a double-delete which
+    // corrupts the FTS5 index and makes all subsequent deletes fail.
     let mut notes_deleted: u64 = 0;
     for nid in &note_ids {
-        // Sync FTS5: delete the entry using content from the notes table
-        let _ = sqlx::query(
-            "INSERT INTO notes_fts(notes_fts, rowid, name, lede, why, content) \
-             SELECT 'delete', rowid, name, lede, why, content FROM notes WHERE id = ?"
-        )
-        .bind(nid)
-        .execute(&ctx.db)
-        .await;
-
-        // Now delete the note — the AFTER DELETE trigger will attempt FTS cleanup
-        // but since we already removed it above, it's a no-op.
         if let Ok(r) = sqlx::query("DELETE FROM notes WHERE id = ?")
             .bind(nid)
             .execute(&ctx.db)
@@ -958,6 +948,11 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
             notes_deleted += r.rows_affected();
         }
     }
+
+    // Rebuild FTS5 index after bulk deletion to ensure consistency.
+    let _ = sqlx::query("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')")
+        .execute(&ctx.db)
+        .await;
 
     // Always delete the source record, even if 0 notes were found
     let _ = sqlx::query("DELETE FROM sources WHERE id = ?")
