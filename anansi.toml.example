@@ -80,15 +80,17 @@ read_only = false
 #   Stage 2:  sb-atomize
 #   Stage 3:  ingest_atomized → PostgreSQL
 #
-# Checkpoint files (Stage 1 outputs) are written to archive_dir before Stage 2 runs.
-# If Stage 2 fails, re-drop the source file into the inbox — Stage 1 will be skipped.
+# Prompts are assembled at runtime from the live skill files in `skills_dir`, so
+# edits made in claude-cowork are picked up immediately — no rebuild needed.
 #
-# llm_backend overrides the global [llm] backend for inbox pipeline calls only.
-# Omit to use the same backend as the main server.
+# Docker volume mount (in docker-compose.yml):
+#   - ./claude-cowork/plugins/r2-anansi.plugin:/data/skills:ro
 #
 # [inbox]
 # enabled = true
-# watch_dir = "/data/inbox"          # created on startup if absent
-# archive_dir = "/data/archive"      # created on startup if absent
+# watch_dir = "/data/inbox"
+# archive_dir = "/data/archive"
 # poll_interval_secs = 30
-# llm_backend = "gemini"             # "gemini" | "openrouter" | "codex" | "ollama"
+# skills_dir = "/data/skills"      # mount point for r2-anansi.plugin/
+# llm_backend = "gemini"           # "gemini" | "openrouter" | "codex" | "ollama"
+

@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
 use crate::config::{LlmConfig, InferSettings, resolve_openrouter_api_key};
 
+#[derive(Debug, Clone, Copy)]
 pub struct InferOpts {
     pub temperature: f32,
     pub max_tokens: u32,

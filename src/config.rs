@@ -112,6 +112,12 @@ pub struct InboxConfig {
     /// Directory to write archive runs (default "/data/archive")
     #[serde(default = "default_inbox_archive_dir")]
     pub archive_dir: String,
+    /// Root directory of the r2-anansi plugin skills tree.
+    /// Expects sub-directories: para-projects-areas/, para-resource-entities/, sb-atomize/
+    /// each containing a SKILL.md and a references/ sub-directory.
+    /// In Docker: mount ./claude-cowork/plugins/r2-anansi.plugin:/data/skills:ro
+    #[serde(default = "default_skills_dir")]
+    pub skills_dir: String,
     /// Polling interval in seconds (default 30)
     #[serde(default = "default_poll_interval_secs")]
     pub poll_interval_secs: u64,
@@ -123,6 +129,7 @@ pub struct InboxConfig {
 
 fn default_inbox_watch_dir() -> String { "/data/inbox".to_string() }
 fn default_inbox_archive_dir() -> String { "/data/archive".to_string() }
+fn default_skills_dir() -> String { "/data/skills".to_string() }
 fn default_poll_interval_secs() -> u64 { 30 }
 
 impl Default for InboxConfig {
@@ -131,6 +138,7 @@ impl Default for InboxConfig {
             enabled: false,
             watch_dir: default_inbox_watch_dir(),
             archive_dir: default_inbox_archive_dir(),
+            skills_dir: default_skills_dir(),
             poll_interval_secs: default_poll_interval_secs(),
             llm_backend: None,
         }

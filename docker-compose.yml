@@ -27,6 +27,7 @@ services:
       - "127.0.0.1:3738:3738"
     volumes:
       - ./data:/data
+      - ./claude-cowork/plugins/r2-anansi.plugin:/data/skills:ro
     environment:
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
       - ANANSI_SKILL_TOKEN=${ANANSI_SKILL_TOKEN:-}
