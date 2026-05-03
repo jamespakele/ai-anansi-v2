@@ -21,6 +21,7 @@ services:
 
   anansi:
     build: .
+    dns_search: []   # prevent Tailscale search domain from breaking Docker DNS
     # Bind to loopback only — Traefik (host network) reaches it via 127.0.0.1:3738
     # Not exposed publicly; 0.0.0.0 is intentionally avoided.
     ports:
@@ -29,7 +30,7 @@ services:
       - ./data:/data
       # Overrides the skills baked into the image with your live claude-cowork skills.
       # Remove this line if you want the image's bundled skills instead.
-      - ./claude-cowork/plugins/r2-anansi.plugin:/data/skills:ro
+      - ./claude-cowork/plugins/r2-anansi.plugin/skills:/data/skills:ro
     environment:
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
       - ANANSI_SKILL_TOKEN=${ANANSI_SKILL_TOKEN:-}

@@ -5,6 +5,10 @@ services:
     # Linux: this maps host.docker.internal → the host's Docker gateway IP.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Temporary: mount skills from source repo until new image with baked skills is pulled.
+      # Remove after: docker compose pull && docker compose up -d
+      - /home/james/projects/ai-anansi-v2/skills:/data/skills:ro
 
   tunnel:
     image: cloudflare/cloudflared:latest

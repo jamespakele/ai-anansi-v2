@@ -29,9 +29,9 @@ use crate::llm::{self, InferOpts, LlmClient};
 
 // ─── Skill names ──────────────────────────────────────────────────────────────
 
-const SKILL_1A: &str = "skills/para-projects-areas";
-const SKILL_1B: &str = "skills/para-resource-entities";
-const SKILL_2:  &str = "skills/sb-atomize";
+const SKILL_1A: &str = "para-projects-areas";
+const SKILL_1B: &str = "para-resource-entities";
+const SKILL_2:  &str = "sb-atomize";
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
