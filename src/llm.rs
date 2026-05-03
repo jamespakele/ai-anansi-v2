@@ -337,10 +337,87 @@ impl LlmClient for OpenRouterClient {
     }
 }
 
+// ─── Codex CLI (OpenAI device-auth) ──────────────────────────────────────────
+//
+// Uses OpenAI Codex CLI authenticated via device auth (`codex auth login`).
+// Token stored in ~/.codex/. No API key needed; uses ChatGPT Plus/Pro subscription.
+//
+// Prompt delivery: write prompt to stdin, capture stdout.
+
+pub struct CodexCliClient {
+    cli_path: String,
+    timeout: Duration,
+}
+
+impl CodexCliClient {
+    pub fn new(cli_path: String, timeout_s: u64) -> Self {
+        Self { cli_path, timeout: Duration::from_secs(timeout_s) }
+    }
+}
+
+#[async_trait]
+impl LlmClient for CodexCliClient {
+    async fn infer(&self, prompt: &str, _opts: InferOpts) -> Result<String> {
+        use tokio::process::Command;
+        use std::process::Stdio;
+
+        let mut child = Command::new(&self.cli_path)
+            .arg("-q")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| anyhow!("failed to spawn codex CLI at '{}': {e}", self.cli_path))?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(prompt.as_bytes()).await
+                .map_err(|e| anyhow!("writing to codex stdin: {e}"))?;
+        }
+
+        let output = tokio::time::timeout(self.timeout, child.wait_with_output())
+            .await
+            .map_err(|_| anyhow!("codex CLI timed out after {}s", self.timeout.as_secs()))?
+            .map_err(|e| anyhow!("codex CLI wait failed: {e}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("codex CLI exited {:?}: {stderr}", output.status.code()));
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if text.is_empty() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("codex CLI returned empty output. stderr: {stderr}"));
+        }
+        Ok(text)
+    }
+
+    async fn ping(&self) -> Result<()> {
+        use tokio::process::Command;
+        let output = Command::new(&self.cli_path)
+            .arg("--version")
+            .output()
+            .await
+            .map_err(|e| anyhow!("codex CLI not found at '{}': {e}", self.cli_path))?;
+        if !output.status.success() {
+            return Err(anyhow!(
+                "codex CLI not reachable at '{}' (exit {:?})",
+                self.cli_path, output.status.code()
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ─── build_client ─────────────────────────────────────────────────────────────
 
 pub fn build_client(config: &LlmConfig) -> Result<Box<dyn LlmClient>> {
-    match config.backend.as_str() {
+    build_client_for_backend(&config.backend, config)
+}
+
+/// Build a client for a specific backend string, falling back to config defaults.
+pub fn build_client_for_backend(backend: &str, config: &LlmConfig) -> Result<Box<dyn LlmClient>> {
+    match backend {
         "ollama" => Ok(Box::new(OllamaClient::new(
             config.url.clone(),
             config.model.clone(),
@@ -420,8 +497,19 @@ pub fn build_client(config: &LlmConfig) -> Result<Box<dyn LlmClient>> {
             )))
         }
 
+        "codex" => {
+            // OpenAI Codex CLI — device-auth, no API key required.
+            // Token stored in ~/.codex/ after running `codex auth login`.
+            let cli_candidate = std::env::var("ANANSI_CODEX_CLI_PATH")
+                .unwrap_or_else(|_| "codex".to_string());
+            Ok(Box::new(CodexCliClient::new(
+                cli_candidate,
+                config.timeout_s,
+            )))
+        }
+
         other => Err(anyhow!(
-            "unknown LLM backend: '{other}'. Valid values: 'ollama', 'gemini', 'openrouter'"
+            "unknown LLM backend: '{other}'. Valid values: 'ollama', 'gemini', 'openrouter', 'codex'"
         )),
     }
 }

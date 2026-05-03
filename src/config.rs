@@ -11,6 +11,8 @@ pub struct Config {
     pub server: ServerConfig,
     #[serde(default)]
     pub pipeline: PipelineConfig,
+    #[serde(default)]
+    pub inbox: InboxConfig,
     /// PostgreSQL connection URL — overridden by DATABASE_URL env var at load time.
     #[serde(default = "default_database_url")]
     pub database_url: String,
@@ -97,6 +99,44 @@ impl PipelineConfig {
     }
 }
 
+// ─── Inbox Watcher ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct InboxConfig {
+    /// Whether the inbox watcher background task is enabled (default false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Directory to watch for incoming files (default "/data/inbox")
+    #[serde(default = "default_inbox_watch_dir")]
+    pub watch_dir: String,
+    /// Directory to write archive runs (default "/data/archive")
+    #[serde(default = "default_inbox_archive_dir")]
+    pub archive_dir: String,
+    /// Polling interval in seconds (default 30)
+    #[serde(default = "default_poll_interval_secs")]
+    pub poll_interval_secs: u64,
+    /// LLM backend override for inbox pipeline stages.
+    /// If None, uses the main llm.backend setting.
+    /// Valid: "gemini" | "openrouter" | "codex" | "ollama"
+    pub llm_backend: Option<String>,
+}
+
+fn default_inbox_watch_dir() -> String { "/data/inbox".to_string() }
+fn default_inbox_archive_dir() -> String { "/data/archive".to_string() }
+fn default_poll_interval_secs() -> u64 { 30 }
+
+impl Default for InboxConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            watch_dir: default_inbox_watch_dir(),
+            archive_dir: default_inbox_archive_dir(),
+            poll_interval_secs: default_poll_interval_secs(),
+            llm_backend: None,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -119,6 +159,7 @@ impl Default for Config {
             },
             server: ServerConfig::default(),
             pipeline: PipelineConfig::default(),
+            inbox: InboxConfig::default(),
             database_url: default_database_url(),
         }
     }

@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 
 use anansi2::config::Config;
 use anansi2::db;
+use anansi2::inbox;
 use anansi2::llm;
 use anansi2::mcp;
 use anansi2::pipeline::{ingest, IngestContext};
@@ -272,6 +273,19 @@ async fn cmd_serve(root: &Path) -> Result<()> {
     });
 
     eprintln!("[anansi2] binding to {host}:{port}");
+
+    // Spawn inbox watcher if enabled
+    if ctx.config.inbox.enabled {
+        let watcher_config = Arc::new(ctx.config.clone());
+        let watcher_pool = ctx.db.clone();
+        tokio::spawn(async move {
+            inbox::run_inbox_watcher(watcher_config, watcher_pool).await;
+        });
+        eprintln!("[anansi2] inbox watcher spawned — watching '{}'", ctx.config.inbox.watch_dir);
+    } else {
+        eprintln!("[anansi2] inbox watcher disabled (set inbox.enabled = true in anansi.toml to enable)");
+    }
+
     mcp::serve(ctx, &host, port).await?;
     Ok(())
 }

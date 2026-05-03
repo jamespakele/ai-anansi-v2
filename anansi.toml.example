@@ -61,3 +61,34 @@ read_only = false
 # [pipeline]
 # mode = "batch"     # enable batch mode
 # mode = "standard"  # explicit default; same as omitting this section
+
+# ─── Codex CLI backend (OpenAI device-auth / subscription) ───────────────────
+# backend = "codex" shells out to the OpenAI Codex CLI. Authenticate once with
+# `codex auth login` (device-flow OAuth). Requires a ChatGPT Plus/Pro subscription.
+# Token stored in ~/.codex/. No API key in .env needed.
+# Set ANANSI_CODEX_CLI_PATH to override the binary path if not in PATH.
+#
+# [llm]
+# backend = "codex"
+# timeout_s = 300
+
+# ─── Inbox watcher ────────────────────────────────────────────────────────────
+# When enabled, a background Tokio task watches `watch_dir` every `poll_interval_secs`.
+# Each .md or .txt file is run through the full pipeline:
+#   Stage 1a: para-projects-areas  (parallel)
+#   Stage 1b: para-resource-entities  (parallel)
+#   Stage 2:  sb-atomize
+#   Stage 3:  ingest_atomized → PostgreSQL
+#
+# Checkpoint files (Stage 1 outputs) are written to archive_dir before Stage 2 runs.
+# If Stage 2 fails, re-drop the source file into the inbox — Stage 1 will be skipped.
+#
+# llm_backend overrides the global [llm] backend for inbox pipeline calls only.
+# Omit to use the same backend as the main server.
+#
+# [inbox]
+# enabled = true
+# watch_dir = "/data/inbox"          # created on startup if absent
+# archive_dir = "/data/archive"      # created on startup if absent
+# poll_interval_secs = 30
+# llm_backend = "gemini"             # "gemini" | "openrouter" | "codex" | "ollama"
