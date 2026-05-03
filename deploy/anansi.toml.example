@@ -1,0 +1,96 @@
+[paths]
+web_dir = "anansi/web"
+rules_dir = "anansi/%Rules"
+templates_dir = "anansi/templates"
+db_file = "anansi/web.db"
+
+[llm]
+backend = "ollama"
+url = "http://localhost:11434"
+model = "qwen2.5:14b"
+n_ctx = 16384
+timeout_s = 600
+
+[llm.decomposition]
+temperature = 0.2
+max_tokens = 4096
+json_mode = false
+
+[llm.extraction]
+temperature = 0.2
+max_tokens = 4096
+json_mode = true
+
+[llm.synthesis]
+temperature = 0.5
+max_tokens = 8192
+json_mode = false
+
+[server]
+mcp_port = 3738
+host = "0.0.0.0"
+read_only = false
+
+# ─── Gemini backend ───────────────────────────────────────────────────────────
+# backend = "gemini" checks for the gemini CLI first (Google OAuth / subscription quota).
+# If the CLI is absent and api_key is set, it falls back to direct Gemini REST.
+# Recommended: install the Gemini CLI and leave api_key commented out.
+#
+# [llm.gemini]
+# cli_path = "/usr/local/bin/gemini"   # omit to search PATH
+# model = "gemini-2.5-pro"
+# api_key = "AIza..."                  # REST fallback only; CLI uses OAuth
+# timeout_s = 300
+
+# ─── OpenRouter backend ───────────────────────────────────────────────────────
+# backend = "openrouter" gives access to virtually every frontier model via one
+# API key (Gemini, Claude, GPT-4, Mistral, etc.).  Recommended fallback when the
+# Gemini CLI is unavailable.  Model strings are provider-namespaced.
+#
+# [llm.openrouter]
+# api_key = "sk-or-..."                # or export ANANSI_OPENROUTER_API_KEY
+# model = "google/gemini-2.5-pro"      # examples: "anthropic/claude-opus-4-7"
+# base_url = "https://openrouter.ai/api/v1"   # default; omit unless self-hosted
+# timeout_s = 300
+
+# ─── Pipeline mode ────────────────────────────────────────────────────────────
+# "batch" collapses N Pass-3 calls + 1 Pass-4 call into a single combined call.
+# Use with frontier models that have large context windows (Gemini 2.5 Pro, etc.).
+# Omit or set to "standard" to use the default per-leaf pipeline.
+#
+# [pipeline]
+# mode = "batch"     # enable batch mode
+# mode = "standard"  # explicit default; same as omitting this section
+
+# ─── Codex CLI backend (OpenAI device-auth / subscription) ───────────────────
+# backend = "codex" shells out to the OpenAI Codex CLI. Authenticate once with
+# `codex auth login` (device-flow OAuth). Requires a ChatGPT Plus/Pro subscription.
+# Token stored in ~/.codex/. No API key in .env needed.
+# Set ANANSI_CODEX_CLI_PATH to override the binary path if not in PATH.
+#
+# [llm]
+# backend = "codex"
+# timeout_s = 300
+
+# ─── Inbox watcher ────────────────────────────────────────────────────────────
+# When enabled, a background Tokio task watches `watch_dir` every `poll_interval_secs`.
+# Each .md or .txt file is run through the full pipeline:
+#   Stage 1a: para-projects-areas  (parallel)
+#   Stage 1b: para-resource-entities  (parallel)
+#   Stage 2:  sb-atomize
+#   Stage 3:  ingest_atomized → PostgreSQL
+#
+# Prompts are assembled at runtime from the live skill files in `skills_dir`, so
+# edits made in claude-cowork are picked up immediately — no rebuild needed.
+#
+# Docker volume mount (in docker-compose.yml):
+#   - ./claude-cowork/plugins/r2-anansi.plugin:/data/skills:ro
+#
+# [inbox]
+# enabled = true
+# watch_dir = "/data/inbox"
+# archive_dir = "/data/archive"
+# poll_interval_secs = 30
+# skills_dir = "/data/skills"      # mount point for r2-anansi.plugin/
+# llm_backend = "gemini"           # "gemini" | "openrouter" | "codex" | "ollama"
+
