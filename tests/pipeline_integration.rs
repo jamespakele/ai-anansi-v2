@@ -61,19 +61,27 @@ fn make_mock_llm(
 async fn make_context(
     root: &Path,
     llm: Box<dyn LlmClient>,
-) -> IngestContext {
+) -> Option<IngestContext> {
     use anansi2::config::{Config, LlmConfig, InferSettings, PathsConfig, ServerConfig, PipelineConfig};
-    use anansi2::db::open_and_migrate;
+    use anansi2::db::connect_and_migrate;
     use anansi2::rules::RuleRegistry;
     use anansi2::template::TemplateRegistry;
     use anansi2::vault::Vault;
     use std::path::PathBuf;
 
+    // Skip DB-dependent tests when no DATABASE_URL is available
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!("[skip] DATABASE_URL not set — skipping integration test");
+            return None;
+        }
+    };
+
     let web_dir = root.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
 
-    let db_path = root.join("test.db");
-    let db = open_and_migrate(&db_path).await.unwrap();
+    let db = connect_and_migrate(&database_url).await.unwrap();
 
     let md = manifest_dir();
     let templates = TemplateRegistry::load(&md.join("templates")).unwrap();
@@ -85,7 +93,6 @@ async fn make_context(
             web_dir: PathBuf::from("web"),
             rules_dir: PathBuf::from("%Rules"),
             templates_dir: PathBuf::from("templates"),
-            db_file: PathBuf::from("test.db"),
         },
         llm: LlmConfig {
             backend: "ollama".to_string(),
@@ -101,9 +108,10 @@ async fn make_context(
         },
         server: ServerConfig::default(),
         pipeline: PipelineConfig { mode: None },
+        database_url,
     };
 
-    IngestContext {
+    Some(IngestContext {
         anansi_root: root.to_path_buf(),
         config,
         vault,
@@ -111,7 +119,7 @@ async fn make_context(
         templates,
         rules,
         llm: Some(llm),
-    }
+    })
 }
 
 fn pass3_json_for(name: &str, entity_type: &str) -> String {
@@ -159,7 +167,10 @@ PICHTR is an organization. Sovereign AI was discussed. Context was important.
     let pass4 = "[]";
 
     let (llm, _count) = make_mock_llm(pass1_toc, &pass3, pass4, 5);
-    let ctx = make_context(root, llm).await;
+    let ctx = match make_context(root, llm).await {
+        Some(c) => c,
+        None => return, // DATABASE_URL not set, skip
+    };
 
     let result = ingest(&ctx, &source_path).await.unwrap();
 
@@ -213,7 +224,10 @@ async fn test_pass1_skipped_when_toc_present() {
     let pass4 = "[]";
 
     let (llm, count) = make_mock_llm("SHOULD_NOT_BE_CALLED", &pass3, pass4, 2);
-    let ctx = make_context(root, llm).await;
+    let ctx = match make_context(root, llm).await {
+        Some(c) => c,
+        None => return, // DATABASE_URL not set, skip
+    };
 
     let result = ingest(&ctx, &source_path).await.unwrap();
 
@@ -241,7 +255,10 @@ async fn test_invalid_toc_falls_back_to_pass1() {
     let pass4 = "[]";
 
     let (llm, _count) = make_mock_llm(pass1_toc, &pass3, pass4, 1);
-    let ctx = make_context(root, llm).await;
+    let ctx = match make_context(root, llm).await {
+        Some(c) => c,
+        None => return, // DATABASE_URL not set, skip
+    };
 
     let result = ingest(&ctx, &source_path).await.unwrap();
 

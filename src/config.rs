@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub paths: PathsConfig,
@@ -10,6 +11,9 @@ pub struct Config {
     pub server: ServerConfig,
     #[serde(default)]
     pub pipeline: PipelineConfig,
+    /// PostgreSQL connection URL — overridden by DATABASE_URL env var at load time.
+    #[serde(default = "default_database_url")]
+    pub database_url: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -20,14 +24,15 @@ pub struct PathsConfig {
     pub rules_dir: PathBuf,
     #[serde(default = "default_templates_dir")]
     pub templates_dir: PathBuf,
-    #[serde(default = "default_db_file")]
-    pub db_file: PathBuf,
 }
 
 fn default_web_dir() -> PathBuf { PathBuf::from("anansi/web") }
 fn default_rules_dir() -> PathBuf { PathBuf::from("anansi/%Rules") }
 fn default_templates_dir() -> PathBuf { PathBuf::from("anansi/templates") }
-fn default_db_file() -> PathBuf { PathBuf::from("anansi/web.db") }
+fn default_database_url() -> String {
+    std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://anansi:anansi@localhost:5432/anansi".to_string())
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LlmConfig {
@@ -99,7 +104,6 @@ impl Default for Config {
                 web_dir: default_web_dir(),
                 rules_dir: default_rules_dir(),
                 templates_dir: default_templates_dir(),
-                db_file: default_db_file(),
             },
             llm: LlmConfig {
                 backend: default_backend(),
@@ -115,6 +119,7 @@ impl Default for Config {
             },
             server: ServerConfig::default(),
             pipeline: PipelineConfig::default(),
+            database_url: default_database_url(),
         }
     }
 }
@@ -212,6 +217,9 @@ impl Config {
         if let Ok(url) = std::env::var("ANANSI_PUBLIC_URL") {
             config.server.public_url = Some(url);
         }
+        if let Ok(url) = std::env::var("DATABASE_URL") {
+            config.database_url = url;
+        }
 
         Ok(config)
     }
@@ -226,10 +234,6 @@ impl Config {
 
     pub fn templates_path(&self, root: &Path) -> PathBuf {
         root.join(&self.paths.templates_dir)
-    }
-
-    pub fn db_path(&self, root: &Path) -> PathBuf {
-        root.join(&self.paths.db_file)
     }
 }
 

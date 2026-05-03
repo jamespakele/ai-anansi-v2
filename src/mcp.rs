@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::atomized_ingest;
 use crate::db::{self, EdgeRecord, now_rfc3339};
+use crate::embed;
 use crate::export;
 use crate::pipeline::{ingest, IngestContext};
 
@@ -146,11 +147,11 @@ fn handle_tools_list(id: Value) -> Json<Value> {
             "tools": [
                 {
                     "name": "anansi_search",
-                    "description": "Full-text search across note name, lede, why, and content using FTS5. Supports FTS5 query syntax (e.g. phrase in quotes, AND/OR, prefix*). Use for keyword and concept lookups.",
+                    "description": "Full-text search across note name, lede, why, and content using PostgreSQL tsvector. Supports plain-text queries. Use for keyword and concept lookups.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
-                            "query": { "type": "string", "description": "FTS5 search query. Plain terms, quoted phrases, or operators like AND/OR/NOT." },
+                            "query": { "type": "string", "description": "Search query. Plain terms or phrases." },
                             "limit": { "type": "integer", "description": "Max results (default 20)." }
                         },
                         "required": ["query"]
@@ -252,7 +253,7 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                 },
                 {
                     "name": "anansi_purge",
-                    "description": "Delete all notes, edges, and contributions from a specific import by source_id. Removes the source record too. Use anansi_search or Datasette to find source_ids.",
+                    "description": "Delete all notes, edges, and contributions from a specific import by source_id. Removes the source record too. Use anansi_search or anansi_filter to find source_ids.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
@@ -260,6 +261,30 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                             "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." }
                         },
                         "required": ["source_id"]
+                    }
+                },
+                {
+                    "name": "anansi_embed",
+                    "description": "Generate and store Gemini text-embedding-004 embeddings for notes. Pass note_id for a single note, or batch:true to embed up to 100 notes that don't yet have embeddings.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "note_id": { "type": "string", "description": "UUID of a specific note to embed." },
+                            "batch": { "type": "boolean", "description": "If true, embed up to 100 un-embedded notes." }
+                        }
+                    }
+                },
+                {
+                    "name": "anansi_search_semantic",
+                    "description": "Semantic similarity search using vector embeddings. Returns notes most similar to the query text by cosine distance. Requires notes to have embeddings (use anansi_embed first).",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": { "type": "string", "description": "Natural-language query to find similar notes." },
+                            "limit": { "type": "integer", "description": "Max results (default 10)." },
+                            "model": { "type": "string", "description": "Embedding model name (default: text-embedding-004)." }
+                        },
+                        "required": ["query"]
                     }
                 },
                 {
@@ -321,6 +346,8 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_ingest_atomized" => tool_ingest_atomized(state, id, args).await,
         "anansi_capture" => tool_capture(state, id, args).await,
         "anansi_purge" => tool_purge(state, id, args).await,
+        "anansi_embed" => tool_embed(state, id, args).await,
+        "anansi_search_semantic" => tool_search_semantic(state, id, args).await,
         "anansi_export_context" => tool_export_context(state, id, args).await,
         "anansi_export_vault" => tool_export_vault(state, id, args).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
@@ -821,16 +848,16 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
          (id, entity_type, name, match_key, lede, why, content, \
           has_conflicts, conflicts_updated_at, merge_category, created_from, \
           source_count, created_at, updated_at) \
-         VALUES (?,?,?,?,?,?,?,0,NULL,'entity',?,1,?,?) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,0,NULL,'entity',$8,1,$9,$10) \
          ON CONFLICT(match_key) DO UPDATE SET \
            lede = excluded.lede, \
-           why = CASE WHEN excluded.why IS NOT NULL THEN excluded.why ELSE why END, \
+           why = CASE WHEN excluded.why IS NOT NULL THEN excluded.why ELSE notes.why END, \
            content = CASE \
-             WHEN content IS NULL THEN excluded.content \
-             WHEN excluded.content IS NULL THEN content \
-             ELSE content || char(10) || excluded.content \
+             WHEN notes.content IS NULL THEN excluded.content \
+             WHEN excluded.content IS NULL THEN notes.content \
+             ELSE notes.content || chr(10) || excluded.content \
            END, \
-           source_count = source_count + 1, \
+           source_count = notes.source_count + 1, \
            updated_at = excluded.updated_at",
     )
     .bind(&rec.id)
@@ -891,7 +918,7 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
     // 2. Notes referenced in source_contributions for this source (merged notes)
     let note_ids: Vec<String> = {
         let direct = sqlx::query_scalar::<_, String>(
-            "SELECT id FROM notes WHERE created_from = ?"
+            "SELECT id FROM notes WHERE created_from = $1"
         )
         .bind(&source_id)
         .fetch_all(&ctx.db)
@@ -899,7 +926,7 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
         .unwrap_or_default();
 
         let contributed = sqlx::query_scalar::<_, String>(
-            "SELECT DISTINCT note_id FROM source_contributions WHERE source_id = ?"
+            "SELECT DISTINCT note_id FROM source_contributions WHERE source_id = $1"
         )
         .bind(&source_id)
         .fetch_all(&ctx.db)
@@ -912,35 +939,34 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
         ids.into_iter().collect()
     };
 
-    // Delete edges connected to any of these notes
+    // Delete edges connected to any of these notes (must be before notes deletion)
     let mut edges_deleted: u64 = 0;
     for nid in &note_ids {
-        let r1 = sqlx::query("DELETE FROM edges WHERE source_note_id = ?")
+        let r1 = sqlx::query("DELETE FROM edges WHERE source_note_id = $1")
             .bind(nid).execute(&ctx.db).await;
-        let r2 = sqlx::query("DELETE FROM edges WHERE target_note_id = ?")
+        let r2 = sqlx::query("DELETE FROM edges WHERE target_note_id = $1")
             .bind(nid).execute(&ctx.db).await;
         edges_deleted += r1.map(|r| r.rows_affected()).unwrap_or(0);
         edges_deleted += r2.map(|r| r.rows_affected()).unwrap_or(0);
     }
     // Also delete any edges attributed to this source via from_source FK
-    let r3 = sqlx::query("DELETE FROM edges WHERE from_source = ?")
+    let r3 = sqlx::query("DELETE FROM edges WHERE from_source = $1")
         .bind(&source_id).execute(&ctx.db).await;
     edges_deleted += r3.map(|r| r.rows_affected()).unwrap_or(0);
 
-    // Delete source contributions for this source
-    let contribs_deleted = sqlx::query("DELETE FROM source_contributions WHERE source_id = ?")
+    // Delete source contributions for this source (must be before notes deletion)
+    let contribs_deleted = sqlx::query("DELETE FROM source_contributions WHERE source_id = $1")
         .bind(&source_id)
         .execute(&ctx.db)
         .await
         .map(|r| r.rows_affected())
         .unwrap_or(0);
 
-    // Delete notes directly. The AFTER DELETE trigger handles FTS5 cleanup.
-    // We do NOT pre-sync the FTS index — doing so causes a double-delete which
-    // corrupts the FTS5 index and makes all subsequent deletes fail.
+    // Delete notes. ON DELETE CASCADE on note_embeddings FK handles embedding cleanup.
+    // Deletion order: edges → contributions → notes (satisfies all FK constraints).
     let mut notes_deleted: u64 = 0;
     for nid in &note_ids {
-        if let Ok(r) = sqlx::query("DELETE FROM notes WHERE id = ?")
+        if let Ok(r) = sqlx::query("DELETE FROM notes WHERE id = $1")
             .bind(nid)
             .execute(&ctx.db)
             .await
@@ -949,13 +975,8 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
         }
     }
 
-    // Rebuild FTS5 index after bulk deletion to ensure consistency.
-    let _ = sqlx::query("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')")
-        .execute(&ctx.db)
-        .await;
-
     // Always delete the source record, even if 0 notes were found
-    let _ = sqlx::query("DELETE FROM sources WHERE id = ?")
+    let _ = sqlx::query("DELETE FROM sources WHERE id = $1")
         .bind(&source_id)
         .execute(&ctx.db)
         .await;
@@ -1085,6 +1106,195 @@ async fn tool_export_vault(state: McpState, id: Value, args: Value) -> Json<Valu
         }
         Err(e) => json_rpc_err(id, -32000, &format!("Vault export failed: {e:#}")),
     }
+}
+
+// ---------------------------------------------------------------------------
+// anansi_embed
+// ---------------------------------------------------------------------------
+
+async fn tool_embed(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+
+    if ctx.config.server.read_only {
+        return json_rpc_err(id, -32000, "this anansi instance is read-only");
+    }
+
+    let api_key = match ctx.config.llm.gemini.as_ref().and_then(|g| g.api_key.as_deref()) {
+        Some(k) => k.to_string(),
+        None => return json_rpc_err(id, -32000, "No Gemini API key configured (set ANANSI_GEMINI_API_KEY)"),
+    };
+
+    let model = "text-embedding-004";
+
+    if let Some(note_id) = args.get("note_id").and_then(|v| v.as_str()) {
+        // Single-note embed
+        let note = match db::get_note(&ctx.db, note_id).await {
+            Ok(Some(n)) => n,
+            Ok(None) => return json_rpc_err(id, -32602, &format!("Note not found: {note_id}")),
+            Err(e) => return json_rpc_err(id, -32000, &format!("DB error: {e:#}")),
+        };
+
+        let text = format!(
+            "{} {} {} {}",
+            note.name,
+            note.lede.as_deref().unwrap_or(""),
+            note.why.as_deref().unwrap_or(""),
+            note.content.as_deref().unwrap_or("")
+        );
+
+        let vec = match embed::gemini_embed(&api_key, &text).await {
+            Ok(v) => v,
+            Err(e) => return json_rpc_err(id, -32000, &format!("Embed failed: {e:#}")),
+        };
+
+        let vector = pgvector::Vector::from(vec);
+        let now = now_rfc3339();
+        let result = sqlx::query(
+            "INSERT INTO note_embeddings (note_id, model, embedding, embedded_at) \
+             VALUES ($1,$2,$3,$4) \
+             ON CONFLICT (note_id, model) DO UPDATE SET embedding = EXCLUDED.embedding, embedded_at = EXCLUDED.embedded_at"
+        )
+        .bind(note_id)
+        .bind(model)
+        .bind(vector)
+        .bind(&now)
+        .execute(&ctx.db)
+        .await;
+
+        match result {
+            Ok(_) => json_rpc_ok(id, json!({ "content": [{ "type": "text", "text": format!("1 note embedded") }] })),
+            Err(e) => json_rpc_err(id, -32000, &format!("Insert failed: {e:#}")),
+        }
+    } else if args.get("batch").and_then(|v| v.as_bool()).unwrap_or(false) {
+        // Batch embed: up to 100 notes without an embedding for this model
+        let note_ids: Vec<String> = match sqlx::query_scalar::<_, String>(
+            "SELECT id FROM notes WHERE id NOT IN \
+             (SELECT note_id FROM note_embeddings WHERE model = $1) \
+             LIMIT 100"
+        )
+        .bind(model)
+        .fetch_all(&ctx.db)
+        .await {
+            Ok(ids) => ids,
+            Err(e) => return json_rpc_err(id, -32000, &format!("DB query failed: {e:#}")),
+        };
+
+        let mut embedded = 0u32;
+        let mut errors = 0u32;
+
+        for note_id in &note_ids {
+            let note = match db::get_note(&ctx.db, note_id).await {
+                Ok(Some(n)) => n,
+                _ => { errors += 1; continue; }
+            };
+
+            let text = format!(
+                "{} {} {} {}",
+                note.name,
+                note.lede.as_deref().unwrap_or(""),
+                note.why.as_deref().unwrap_or(""),
+                note.content.as_deref().unwrap_or("")
+            );
+
+            let vec = match embed::gemini_embed(&api_key, &text).await {
+                Ok(v) => v,
+                Err(_) => { errors += 1; continue; }
+            };
+
+            let vector = pgvector::Vector::from(vec);
+            let now = now_rfc3339();
+            let _ = sqlx::query(
+                "INSERT INTO note_embeddings (note_id, model, embedding, embedded_at) \
+                 VALUES ($1,$2,$3,$4) \
+                 ON CONFLICT (note_id, model) DO UPDATE SET embedding = EXCLUDED.embedding, embedded_at = EXCLUDED.embedded_at"
+            )
+            .bind(note_id)
+            .bind(model)
+            .bind(vector)
+            .bind(&now)
+            .execute(&ctx.db)
+            .await;
+
+            embedded += 1;
+        }
+
+        json_rpc_ok(id, json!({
+            "content": [{
+                "type": "text",
+                "text": format!("{embedded} notes embedded, {errors} errors")
+            }]
+        }))
+    } else {
+        json_rpc_err(id, -32602, "Provide either note_id or batch:true")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// anansi_search_semantic
+// ---------------------------------------------------------------------------
+
+async fn tool_search_semantic(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+
+    let query = match args.get("query").and_then(|v| v.as_str()) {
+        Some(q) => q.to_string(),
+        None => return json_rpc_err(id, -32602, "Missing required argument: query"),
+    };
+
+    let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
+    let model = args.get("model").and_then(|v| v.as_str()).unwrap_or("text-embedding-004").to_string();
+
+    let api_key = match ctx.config.llm.gemini.as_ref().and_then(|g| g.api_key.as_deref()) {
+        Some(k) => k.to_string(),
+        None => return json_rpc_err(id, -32000, "No Gemini API key configured (set ANANSI_GEMINI_API_KEY)"),
+    };
+
+    let vec = match embed::gemini_embed(&api_key, &query).await {
+        Ok(v) => v,
+        Err(e) => return json_rpc_err(id, -32000, &format!("Embed query failed: {e:#}")),
+    };
+
+    let vector = pgvector::Vector::from(vec);
+
+    let rows = match sqlx::query(
+        "SELECT n.id, n.name, n.entity_type, n.lede, n.match_key, \
+         1-(ne.embedding<=>$1) AS similarity \
+         FROM note_embeddings ne \
+         JOIN notes n ON n.id = ne.note_id \
+         WHERE ne.model = $2 \
+         ORDER BY ne.embedding<=>$1 \
+         LIMIT $3"
+    )
+    .bind(&vector)
+    .bind(&model)
+    .bind(limit)
+    .fetch_all(&ctx.db)
+    .await {
+        Ok(r) => r,
+        Err(e) => return json_rpc_err(id, -32000, &format!("Semantic search failed: {e:#}")),
+    };
+
+    use sqlx::Row;
+    let results: Vec<serde_json::Value> = rows.iter().map(|r| {
+        let similarity: f64 = r.try_get("similarity").unwrap_or(0.0);
+        json!({
+            "id": r.get::<String, _>("id"),
+            "name": r.get::<String, _>("name"),
+            "entity_type": r.get::<String, _>("entity_type"),
+            "lede": r.try_get::<Option<String>, _>("lede").unwrap_or(None),
+            "match_key": r.get::<String, _>("match_key"),
+            "similarity": (similarity * 1000.0).round() / 1000.0,
+        })
+    }).collect();
+
+    let text = serde_json::to_string_pretty(&results).unwrap_or_default();
+
+    json_rpc_ok(id, json!({
+        "content": [{
+            "type": "text",
+            "text": text
+        }]
+    }))
 }
 
 // ---------------------------------------------------------------------------

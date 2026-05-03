@@ -1,37 +1,20 @@
 use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
-use sqlx::{Row, SqlitePool};
-use std::path::Path;
+use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::Row;
 
-pub type DbPool = SqlitePool;
+pub type DbPool = PgPool;
 
 pub const MANUAL_SOURCE_ID: &str = "00000000-0000-0000-0000-000000000000";
 
-pub async fn open_and_migrate(db_path: &Path) -> Result<DbPool> {
-    let opts = SqliteConnectOptions::new()
-        .filename(db_path)
-        .create_if_missing(true)
-        .journal_mode(SqliteJournalMode::Wal)
-        .foreign_keys(true);
-
-    let pool = SqlitePool::connect_with(opts).await?;
+pub async fn connect_and_migrate(database_url: &str) -> Result<DbPool> {
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(database_url)
+        .await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
-    seed_manual_source(&pool).await?;
     Ok(pool)
-}
-
-async fn seed_manual_source(pool: &DbPool) -> Result<()> {
-    sqlx::query(
-        "INSERT OR IGNORE INTO sources (id, source_path, title, source_type, content_hash, ingested_at) \
-         VALUES (?, 'manual', 'Manual edges', 'manual', 'manual', ?)"
-    )
-    .bind(MANUAL_SOURCE_ID)
-    .bind(chrono::Utc::now().to_rfc3339())
-    .execute(pool)
-    .await?;
-    Ok(())
 }
 
 pub fn match_key(name: &str, entity_type: &str) -> String {
@@ -110,7 +93,7 @@ pub async fn insert_source(pool: &DbPool, rec: &SourceRecord) -> Result<()> {
         "INSERT INTO sources \
          (id, source_path, title, source_type, content_hash, toc_hash, \
           preprocessed_toc, toc_author, toc_generated_at, ingested_at) \
-         VALUES (?,?,?,?,?,?,?,?,?,?)",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
     )
     .bind(&rec.id)
     .bind(&rec.source_path)
@@ -128,7 +111,7 @@ pub async fn insert_source(pool: &DbPool, rec: &SourceRecord) -> Result<()> {
 }
 
 pub async fn get_source(pool: &DbPool, id: &str) -> Result<Option<SourceRecord>> {
-    let row = sqlx::query("SELECT * FROM sources WHERE id = ?")
+    let row = sqlx::query("SELECT * FROM sources WHERE id = $1")
         .bind(id)
         .fetch_optional(pool)
         .await?;
@@ -136,7 +119,7 @@ pub async fn get_source(pool: &DbPool, id: &str) -> Result<Option<SourceRecord>>
 }
 
 pub async fn find_source_by_content_hash(pool: &DbPool, hash: &str) -> Result<Option<SourceRecord>> {
-    let row = sqlx::query("SELECT * FROM sources WHERE content_hash = ?")
+    let row = sqlx::query("SELECT * FROM sources WHERE content_hash = $1")
         .bind(hash)
         .fetch_optional(pool)
         .await?;
@@ -144,14 +127,14 @@ pub async fn find_source_by_content_hash(pool: &DbPool, hash: &str) -> Result<Op
 }
 
 pub async fn find_source_by_path(pool: &DbPool, source_path: &str) -> Result<Option<SourceRecord>> {
-    let row = sqlx::query("SELECT * FROM sources WHERE source_path = ? ORDER BY ingested_at DESC LIMIT 1")
+    let row = sqlx::query("SELECT * FROM sources WHERE source_path = $1 ORDER BY ingested_at DESC LIMIT 1")
         .bind(source_path)
         .fetch_optional(pool)
         .await?;
     Ok(row.map(row_to_source))
 }
 
-fn row_to_source(row: sqlx::sqlite::SqliteRow) -> SourceRecord {
+fn row_to_source(row: sqlx::postgres::PgRow) -> SourceRecord {
     SourceRecord {
         id: row.get("id"),
         source_path: row.get("source_path"),
@@ -172,12 +155,12 @@ pub async fn insert_note(pool: &DbPool, rec: &NoteRecord) -> Result<()> {
          (id, entity_type, name, match_key, lede, why, content, \
           has_conflicts, conflicts_updated_at, merge_category, created_from, \
           source_count, created_at, updated_at) \
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) \
          ON CONFLICT(match_key) DO UPDATE SET \
-           lede = COALESCE(lede, excluded.lede), \
-           why = COALESCE(why, excluded.why), \
-           content = COALESCE(content, excluded.content), \
-           source_count = source_count + 1, \
+           lede = COALESCE(notes.lede, excluded.lede), \
+           why = COALESCE(notes.why, excluded.why), \
+           content = COALESCE(notes.content, excluded.content), \
+           source_count = notes.source_count + 1, \
            updated_at = excluded.updated_at",
     )
     .bind(&rec.id)
@@ -200,7 +183,7 @@ pub async fn insert_note(pool: &DbPool, rec: &NoteRecord) -> Result<()> {
 }
 
 pub async fn get_note(pool: &DbPool, id: &str) -> Result<Option<NoteRecord>> {
-    let row = sqlx::query("SELECT * FROM notes WHERE id = ?")
+    let row = sqlx::query("SELECT * FROM notes WHERE id = $1")
         .bind(id)
         .fetch_optional(pool)
         .await?;
@@ -208,14 +191,14 @@ pub async fn get_note(pool: &DbPool, id: &str) -> Result<Option<NoteRecord>> {
 }
 
 pub async fn find_note_by_match_key(pool: &DbPool, key: &str) -> Result<Option<NoteRecord>> {
-    let row = sqlx::query("SELECT * FROM notes WHERE match_key = ?")
+    let row = sqlx::query("SELECT * FROM notes WHERE match_key = $1")
         .bind(key)
         .fetch_optional(pool)
         .await?;
     Ok(row.map(row_to_note))
 }
 
-fn row_to_note(row: sqlx::sqlite::SqliteRow) -> NoteRecord {
+fn row_to_note(row: sqlx::postgres::PgRow) -> NoteRecord {
     NoteRecord {
         id: row.get("id"),
         entity_type: row.get("entity_type"),
@@ -234,10 +217,9 @@ fn row_to_note(row: sqlx::sqlite::SqliteRow) -> NoteRecord {
     }
 }
 
-
 pub async fn increment_source_count(pool: &DbPool, note_id: &str) -> Result<()> {
     let now = now_rfc3339();
-    sqlx::query("UPDATE notes SET source_count = source_count + 1, updated_at = ? WHERE id = ?")
+    sqlx::query("UPDATE notes SET source_count = source_count + 1, updated_at = $1 WHERE id = $2")
         .bind(&now)
         .bind(note_id)
         .execute(pool)
@@ -249,7 +231,7 @@ pub async fn insert_contribution(pool: &DbPool, rec: &SourceContributionRecord) 
     sqlx::query(
         "INSERT INTO source_contributions \
          (id, source_id, note_id, toc_address, hint, contribution_type, payload, contributed_at) \
-         VALUES (?,?,?,?,?,?,?,?)",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
     )
     .bind(&rec.id)
     .bind(&rec.source_id)
@@ -266,9 +248,10 @@ pub async fn insert_contribution(pool: &DbPool, rec: &SourceContributionRecord) 
 
 pub async fn insert_edge_if_not_exists(pool: &DbPool, rec: &EdgeRecord) -> Result<bool> {
     let result = sqlx::query(
-        "INSERT OR IGNORE INTO edges \
+        "INSERT INTO edges \
          (id, source_note_id, target_note_id, edge_type, why, from_source, weight, metadata, created_at) \
-         VALUES (?,?,?,?,?,?,?,?,?)",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) \
+         ON CONFLICT (source_note_id, target_note_id, edge_type, from_source) DO NOTHING",
     )
     .bind(&rec.id)
     .bind(&rec.source_note_id)
@@ -286,9 +269,8 @@ pub async fn insert_edge_if_not_exists(pool: &DbPool, rec: &EdgeRecord) -> Resul
 
 pub async fn edges_for_note(pool: &DbPool, note_id: &str) -> Result<Vec<EdgeRecord>> {
     let rows = sqlx::query(
-        "SELECT * FROM edges WHERE source_note_id = ? OR target_note_id = ?",
+        "SELECT * FROM edges WHERE source_note_id = $1 OR target_note_id = $1",
     )
-    .bind(note_id)
     .bind(note_id)
     .fetch_all(pool)
     .await?;
@@ -310,15 +292,13 @@ pub async fn edges_for_note(pool: &DbPool, note_id: &str) -> Result<Vec<EdgeReco
 }
 
 pub async fn search_notes(pool: &DbPool, query: &str, limit: i64) -> Result<Vec<NoteRecord>> {
-    // Use FTS5 for fast full-text search across name, lede, why, and content.
-    // Falls back gracefully: if the FTS index doesn't exist yet (old DB), the
-    // query will fail and the caller will surface the error.
+    // Use PostgreSQL tsvector full-text search across name, lede, why, and content.
+    // The fts_vector column is a GENERATED ALWAYS AS STORED tsvector column.
     let rows = sqlx::query(
-        "SELECT n.* FROM notes n \
-         JOIN notes_fts f ON n.rowid = f.rowid \
-         WHERE notes_fts MATCH ? \
-         ORDER BY n.updated_at DESC \
-         LIMIT ?",
+        "SELECT * FROM notes \
+         WHERE fts_vector @@ plainto_tsquery('english', $1) \
+         ORDER BY ts_rank(fts_vector, plainto_tsquery('english', $1)) DESC \
+         LIMIT $2",
     )
     .bind(query)
     .bind(limit)
@@ -337,11 +317,22 @@ pub async fn filter_notes(
     before: Option<&str>,
     limit: i64,
 ) -> Result<Vec<NoteRecord>> {
-    // Build a dynamic WHERE clause
-    let mut conditions: Vec<&str> = Vec::new();
-    if entity_type.is_some() { conditions.push("entity_type = ?"); }
-    if after.is_some()       { conditions.push("updated_at >= ?"); }
-    if before.is_some()      { conditions.push("updated_at <= ?"); }
+    // Build dynamic WHERE clause with PostgreSQL $N positional parameters
+    let mut conditions: Vec<String> = Vec::new();
+    let mut param_idx: i32 = 1;
+
+    if entity_type.is_some() {
+        conditions.push(format!("entity_type = ${param_idx}"));
+        param_idx += 1;
+    }
+    if after.is_some() {
+        conditions.push(format!("updated_at >= ${param_idx}"));
+        param_idx += 1;
+    }
+    if before.is_some() {
+        conditions.push(format!("updated_at <= ${param_idx}"));
+        param_idx += 1;
+    }
 
     let where_clause = if conditions.is_empty() {
         String::new()
@@ -350,7 +341,7 @@ pub async fn filter_notes(
     };
 
     let sql = format!(
-        "SELECT * FROM notes {where_clause} ORDER BY updated_at DESC LIMIT ?"
+        "SELECT * FROM notes {where_clause} ORDER BY updated_at DESC LIMIT ${param_idx}"
     );
 
     let mut q = sqlx::query(&sql);
@@ -376,7 +367,7 @@ pub async fn find_contribution_by_source_toc(
          n.merge_category, n.created_from, n.source_count, n.created_at, n.updated_at \
          FROM source_contributions sc \
          JOIN notes n ON n.id = sc.note_id \
-         WHERE sc.source_id = ? AND sc.toc_address = ?",
+         WHERE sc.source_id = $1 AND sc.toc_address = $2",
     )
     .bind(source_id)
     .bind(toc_address)

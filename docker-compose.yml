@@ -1,4 +1,24 @@
+# REQUIRED .env file on VPS (at same dir as docker-compose.yml):
+# POSTGRES_PASSWORD=<strong-random-password>
+# ANANSI_GEMINI_API_KEY=<your-key>
+# ANANSI_SKILL_TOKEN=<your-token>
+
 services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      - POSTGRES_USER=anansi
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=anansi
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anansi -d anansi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   anansi:
     build: .
     # Bind to loopback only — Traefik (host network) reaches it via 127.0.0.1:3738
@@ -11,20 +31,14 @@ services:
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
       - ANANSI_SKILL_TOKEN=${ANANSI_SKILL_TOKEN:-}
       - ANANSI_PUBLIC_URL=https://vps.pakele.ai
+      - DATABASE_URL=postgres://anansi:${POSTGRES_PASSWORD}@db:5432/anansi
+    depends_on:
+      db:
+        condition: service_healthy
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.anansi.rule=Host(`vps.pakele.ai`)"
       - "traefik.http.routers.anansi.entrypoints=websecure"
       - "traefik.http.routers.anansi.tls.certresolver=letsencrypt"
       - "traefik.http.services.anansi.loadbalancer.server.port=3738"
-    restart: unless-stopped
-
-  # Live read-only DB browser over Tailscale (for debugging)
-  datasette:
-    image: datasetteproject/datasette
-    command: ["datasette", "/data/anansi/web.db", "--host", "0.0.0.0", "--port", "8080", "--setting", "default_page_size", "50"]
-    volumes:
-      - ./data:/data:ro
-    ports:
-      - "100.118.188.14:9091:8080"
     restart: unless-stopped

@@ -2,7 +2,7 @@
 title: 'Anansi v2 — Build 10: SQLite → PostgreSQL + pgvector'
 type: 'feature'
 created: '2026-05-02'
-status: 'ready-for-dev'
+status: 'complete'
 baseline_commit: '37b8ae0'
 context:
   - docs/anansi-v2-build-10-postgres.md

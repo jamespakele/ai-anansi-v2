@@ -71,12 +71,13 @@ pub async fn merge_pure_atomic(
     }
 }
 
-/// INSERT OR IGNORE wrapper for source_contributions (handles UNIQUE constraint).
+/// INSERT ... ON CONFLICT DO NOTHING wrapper for source_contributions (handles UNIQUE constraint).
 async fn try_insert_contribution(pool: &DbPool, rec: &SourceContributionRecord) -> Result<()> {
     sqlx::query(
-        "INSERT OR IGNORE INTO source_contributions \
+        "INSERT INTO source_contributions \
          (id, source_id, note_id, toc_address, hint, contribution_type, payload, contributed_at) \
-         VALUES (?,?,?,?,?,?,?,?)",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) \
+         ON CONFLICT (source_id, note_id) DO NOTHING",
     )
     .bind(&rec.id)
     .bind(&rec.source_id)
@@ -224,7 +225,7 @@ pub async fn merge_source_bound(
                 let _ = try_insert_contribution(pool, &contrib).await;
                 Ok(MergeOutcome::Noop { note_id: existing_note.id })
             } else {
-                sqlx::query("UPDATE notes SET updated_at = ? WHERE id = ?")
+                sqlx::query("UPDATE notes SET updated_at = $1 WHERE id = $2")
                     .bind(now_rfc3339())
                     .bind(&existing_note.id)
                     .execute(pool)
@@ -241,14 +242,12 @@ pub async fn merge_source_bound(
 mod tests {
     use super::*;
     use std::path::Path;
-    use crate::db::{open_and_migrate, insert_source, SourceRecord, now_rfc3339, match_key};
+    use crate::db::{connect_and_migrate, insert_source, SourceRecord, now_rfc3339, match_key};
     use crate::vault::Vault;
 
-    async fn setup_db() -> (tempfile::TempDir, DbPool) {
-        let dir = tempfile::tempdir().unwrap();
-        let db_path = dir.path().join("test.db");
-        let pool = open_and_migrate(&db_path).await.unwrap();
-        (dir, pool)
+    async fn setup_db() -> Option<DbPool> {
+        let url = std::env::var("DATABASE_URL").ok()?;
+        Some(connect_and_migrate(&url).await.unwrap())
     }
 
     fn make_vault(dir: &Path) -> Vault {
@@ -294,7 +293,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_pure_atomic_create() {
-        let (dir, pool) = setup_db().await;
+        let pool = match setup_db().await {
+            Some(p) => p,
+            None => return, // DATABASE_URL not set, skip
+        };
+        let dir = tempfile::tempdir().unwrap();
         let vault = make_vault(dir.path());
         let source = make_source(dir.path());
         insert_source(&pool, &source).await.unwrap();
@@ -320,7 +323,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_pure_atomic_fill() {
-        let (dir, pool) = setup_db().await;
+        let pool = match setup_db().await {
+            Some(p) => p,
+            None => return, // DATABASE_URL not set, skip
+        };
+        let dir = tempfile::tempdir().unwrap();
         let vault = make_vault(dir.path());
         let source = make_source(dir.path());
         insert_source(&pool, &source).await.unwrap();
@@ -366,7 +373,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_pure_atomic_conflict() {
-        let (dir, pool) = setup_db().await;
+        let pool = match setup_db().await {
+            Some(p) => p,
+            None => return,
+        };
+        let dir = tempfile::tempdir().unwrap();
         let vault = make_vault(dir.path());
         let source = make_source(dir.path());
         insert_source(&pool, &source).await.unwrap();
@@ -410,7 +421,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_source_bound_noop() {
-        let (dir, pool) = setup_db().await;
+        let pool = match setup_db().await {
+            Some(p) => p,
+            None => return,
+        };
+        let dir = tempfile::tempdir().unwrap();
         let vault = make_vault(dir.path());
         let source = make_source(dir.path());
         insert_source(&pool, &source).await.unwrap();
@@ -443,7 +458,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_source_bound_regenerate() {
-        let (dir, pool) = setup_db().await;
+        let pool = match setup_db().await {
+            Some(p) => p,
+            None => return,
+        };
+        let dir = tempfile::tempdir().unwrap();
         let vault = make_vault(dir.path());
         let source = make_source(dir.path());
         insert_source(&pool, &source).await.unwrap();

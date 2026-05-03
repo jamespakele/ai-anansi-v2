@@ -177,9 +177,8 @@ async fn cmd_init(root: &Path) -> Result<()> {
 
     // Open and migrate the database
     let config = Config::load(root)?;
-    let db_path = config.db_path(root);
-    db::open_and_migrate(&db_path).await
-        .with_context(|| format!("opening/migrating DB at {}", db_path.display()))?;
+    db::connect_and_migrate(&config.database_url).await
+        .with_context(|| format!("connecting/migrating DB at {}", config.database_url))?;
 
     println!("Vault initialised at {}", root.display());
     println!("  templates : {} created, {} preserved (existing files never overwritten)", tmpl_created, tmpl_skipped);
@@ -196,7 +195,7 @@ async fn cmd_ingest(root: &Path, file: &Path) -> Result<()> {
     let config = Config::load(root)
         .with_context(|| format!("loading config from {}", root.display()))?;
 
-    let db_pool = db::open_and_migrate(&config.db_path(root)).await?;
+    let db_pool = db::connect_and_migrate(&config.database_url).await?;
     let templates = TemplateRegistry::load(&config.templates_path(root))?;
     let rules = RuleRegistry::load(&config.rules_path(root))?;
     let vault = Vault::new(root.to_path_buf(), &config.paths.web_dir);
@@ -242,15 +241,8 @@ async fn cmd_serve(root: &Path) -> Result<()> {
     let port = config.server.mcp_port;
     eprintln!("[anansi2] config loaded — host={host} port={port} backend={}", config.llm.backend);
 
-    // Ensure the anansi subdirectory exists for the DB (vault may be empty on first boot)
-    let db_path = config.db_path(root);
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating db directory {}", parent.display()))?;
-    }
-
-    eprintln!("[anansi2] opening db at {}", db_path.display());
-    let db_pool = db::open_and_migrate(&db_path).await?;
+    eprintln!("[anansi2] connecting to db at {}", config.database_url);
+    let db_pool = db::connect_and_migrate(&config.database_url).await?;
 
     let templates = TemplateRegistry::load(&config.templates_path(root)).unwrap_or_default();
     let rules = RuleRegistry::load(&config.rules_path(root)).unwrap_or_default();

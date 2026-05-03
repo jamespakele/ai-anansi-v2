@@ -124,7 +124,7 @@ pub async fn ingest_atomized(
 
     // Always overwrite outline content — ensures re-ingest of revised content
     // updates the structural skeleton even when COALESCE would skip a non-NULL value.
-    sqlx::query("UPDATE notes SET content = ?1, updated_at = ?2 WHERE match_key = ?3")
+    sqlx::query("UPDATE notes SET content = $1, updated_at = $2 WHERE match_key = $3")
         .bind(&toc_text)
         .bind(now_rfc3339())
         .bind(&outline_mk)
