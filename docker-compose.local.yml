@@ -1,0 +1,14 @@
+services:
+  anansi:
+    # Allows the anansi container to reach Ollama running on the host machine.
+    # Mac/Windows: host.docker.internal resolves automatically — extra_hosts not needed.
+    # Linux: this entry maps host.docker.internal → the host's Docker gateway IP.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --url http://anansi:3738
+    depends_on:
+      - anansi
+    restart: unless-stopped

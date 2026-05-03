@@ -1,168 +1,196 @@
 # anansi v2
 
-A structured knowledge-pipeline that turns raw source documents (meeting notes, research
-papers, email threads) into an interconnected graph of atomic notes — stored as plain
-Markdown files with a SQLite adjacency database.
+An autonomous knowledge-graph engine. Drop any document into the inbox; Anansi
+atomizes it into typed notes (people, projects, concepts, events …), graphs their
+relationships, and stores everything in PostgreSQL — queryable over MCP from
+Claude Cowork or any MCP client.
 
 ---
 
-## What it is
+## How it works
 
-Anansi v2 is a local-first knowledge graph engine. You feed it source documents; it
-decomposes them into typed atomic notes (people, concepts, projects, tasks, events, …),
-writes each note as a Markdown file, and records the relationships between them in a
-SQLite database. You interact with the graph via the MCP server (JSON-RPC 2.0) or the
-CLI — no vendor lock-in, no cloud dependency.
-
-The pipeline runs three LLM passes per source:
-1. **Pass 1 (TOC)** — Decompose the source into a Table of Contents of typed entities.
-   This pass is handled **offline by a frontier model** — Claude via [Cowork](https://cowork.anthropic.com),
-   [Claude Code](https://claude.ai/code), or [Codex Desktop](https://codex.anthropic.com) —
-   using the `anansi.plugin` plugin. The augmented file (with `anansi_toc` frontmatter)
-   is committed back to the vault before ingestion.
-2. **Pass 3** — Extract structured fields + summaries for each entity (local LLM via Ollama).
-3. **Pass 4** — Infer semantic relationships between entities (local LLM via Ollama).
-
-When the daemon detects a preprocessed `anansi_toc` block it skips Pass 1 entirely,
-so only the cheaper extraction and synthesis passes run locally.
-
-Full design: [`docs/anansi-v2-spec.md`](docs/anansi-v2-spec.md).
-
----
-
-## Quick start
-
-```sh
-# 1. Initialise a vault
-anansi2 init --root ./my-vault
-
-# 2. Edit ./my-vault/anansi.toml — set your Ollama URL and model
-
-# 3. Ingest a source document
-anansi2 ingest ./my-vault/q3-planning-meeting.md --root ./my-vault
-
-# 4. Start the MCP server
-anansi2 serve --root ./my-vault
+```
+/data/inbox/<note>.md
+       │
+       ▼  (background watcher — no human needed)
+  Stage 1 ─────────────────────────────── (parallel)
+    ├── para-projects-areas    → projects-areas-toc.md + projects-areas-typed.md
+    └── para-resource-entities → resources-toc.md     + resources-typed.md
+       │
+       ▼
+  Stage 2: sb-atomize          → <slug>-atomized.md + <slug>-toc.md
+       │
+       ▼
+  Stage 3: ingest_atomized     → PostgreSQL (notes, edges, sources)
+       │
+       ▼
+  MCP server (port 3738)  ←  Claude Cowork / Claude Desktop / any MCP client
 ```
 
-The MCP server listens on port 3738 by default. Connect any MCP client (Claude Desktop,
-Cowork, Claude Code) to `http://localhost:3738`.
+Intermediate files are checkpointed in `/data/archive/<slug>-<timestamp>/`.
+If a stage fails, drop the source file back into the inbox — completed stages
+are skipped automatically.
 
 ---
 
-## Docker deploy
+## Local quick start
 
-```sh
-# 1. Create the anansi vault directory
-mkdir -p anansi
+### Prerequisites
 
-# 2. Initialise (needs a local binary, or run inside the container)
-anansi2 init --root ./anansi
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Mac/Windows)
+  or Docker Engine (Linux)
+- A Cloudflare account is **not** required — quick tunnels are anonymous
 
-# 3. Configure
-cp anansi.toml.example anansi/anansi.toml
-# Edit anansi/anansi.toml with your Ollama settings
+### 1 — Clone & configure
 
-# 4. Start the container
+```bash
+git clone https://github.com/jamespakele/ai-anansi-v2
+cd ai-anansi-v2
+cp .env.example .env
+```
+
+Edit `.env` and fill in `POSTGRES_PASSWORD` plus **one** LLM option:
+
+| Option | What to do |
+|--------|-----------|
+| **Gemini API** (easiest) | Get a free key at [ai.google.dev](https://ai.google.dev) → set `ANANSI_GEMINI_API_KEY` |
+| **Ollama** (no API key) | Install [Ollama](https://ollama.com), run `ollama pull qwen2.5:14b`, see config below |
+| **OpenRouter** | Set `ANANSI_OPENROUTER_API_KEY` |
+
+### 2 — Configure anansi.toml
+
+Copy and edit the config:
+
+```bash
+cp anansi.toml.example data/anansi/anansi.toml
+```
+
+**For Gemini API:**
+```toml
+[llm]
+backend = "gemini"
+# url and model are ignored for gemini — set in [llm.gemini] if needed
+```
+
+**For Ollama (installed on your machine):**
+```toml
+[llm]
+backend = "ollama"
+url     = "http://host.docker.internal:11434"   # reaches your local Ollama
+model   = "qwen2.5:14b"   # minimum recommended; 7b models may miss delimiters
+```
+
+**For OpenRouter:**
+```toml
+[llm]
+backend = "openrouter"
+
+[llm.openrouter]
+model = "google/gemini-2.5-pro"
+```
+
+### 3 — Start the stack
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+```
+
+This starts:
+- `db` — PostgreSQL + pgvector
+- `anansi` — MCP server + inbox watcher
+- `tunnel` — Cloudflare quick tunnel (free, no account needed)
+
+### 4 — Get your HTTPS URL
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml logs tunnel
+```
+
+Look for a line like:
+```
+INF | Your quick Tunnel has been created! Visit it at: https://abc123.trycloudflare.com
+```
+
+### 5 — Connect Cowork
+
+In Claude Cowork → Settings → MCP → Add server → paste your `https://...trycloudflare.com` URL.
+
+### 6 — Try it
+
+Drop a Markdown file into `./data/inbox/` and watch the logs:
+
+```bash
+echo "# Meeting Notes\n\nDiscussed roadmap with Alice and Bob from Acme Corp." \
+  > data/inbox/test.md
+
+docker compose -f docker-compose.yml -f docker-compose.local.yml logs anansi -f
+```
+
+---
+
+## VPS deploy (production)
+
+Uses Traefik for HTTPS — no Cloudflare tunnel needed.
+
+```bash
+# On the VPS:
+git clone https://github.com/jamespakele/ai-anansi-v2 /docker/ai-anansi-v2
+cd /docker/ai-anansi-v2
+cp .env.example .env   # fill in POSTGRES_PASSWORD + ANANSI_GEMINI_API_KEY
 docker compose up -d
-
-# 5. Verify
-curl http://localhost:3738/health
 ```
 
-The `docker-compose.yml` binds `./anansi` as the vault volume and exposes port 3738.
-Set `ANANSI_OLLAMA_URL` and `ANANSI_OLLAMA_MODEL` environment variables to override
-the config at runtime.
+Traefik routes `https://your-domain.com` → `127.0.0.1:3738` automatically via
+the labels in `docker-compose.yml`. Update the `Host()` rule and `ANANSI_PUBLIC_URL`
+to match your domain.
+
+---
+
+## MCP tools
+
+| Tool | Description |
+|------|-------------|
+| `anansi_search` | Full-text keyword search across all notes |
+| `anansi_search_semantic` | Vector similarity search (requires embeddings) |
+| `anansi_remember` | Ingest a raw source document via MCP |
+| `anansi_ingest_atomized` | Ingest pre-atomized markdown directly |
+| `anansi_embed` | Generate/refresh embeddings for notes |
+| `anansi_purge` | Remove an ingestion batch by source ID |
+
+---
+
+## Inbox watcher
+
+Drop any `.md` or `.txt` file into `/data/inbox/`. The watcher picks it up
+within `poll_interval_secs` (default 30s) and runs the full pipeline.
+
+Enable in `anansi.toml`:
+
+```toml
+[inbox]
+enabled            = true
+watch_dir          = "/data/inbox"
+archive_dir        = "/data/archive"
+skills_dir         = "/data/skills"    # auto-mounted from claude-cowork plugin
+poll_interval_secs = 30
+llm_backend        = "gemini"          # optional: overrides [llm] backend for inbox only
+```
+
+Prompts are loaded at runtime from the live skill files in `claude-cowork/plugins/r2-anansi.plugin/skills/` — editing a skill in Cowork takes effect on the next poll without a rebuild.
 
 ---
 
 ## Architecture
 
-```
-source document
-      │
-      ▼
- anansi.plugin  (Claude — Cowork / Claude Code / Codex Desktop)
-  └── Pass 1: decompose → TOC  (frontier LLM, in your Claude session)
-      │  writes anansi_toc into source frontmatter
-      ▼
- pipeline::ingest()             (local daemon, Ollama-backed)
-  ├── Pass 3: extract fields/summaries  (LLM, per entity)
-  └── Pass 4: infer relationships       (LLM)
-      │
-      ▼
- vault/  (Markdown files)
- web.db  (SQLite: notes, edges, sources, source_contributions)
-      │
-      ▼
- mcp::serve()  →  JSON-RPC 2.0 at POST /
-```
-
-Key modules:
 | Module | Purpose |
 |--------|---------|
-| `config` | Load `anansi.toml` + env-var overrides |
-| `db` | SQLite access (notes, edges, sources) |
-| `pipeline` | Ingest orchestration (Pass 1/3/4) |
-| `template` | Entity type definitions + merge strategies |
-| `rules` | `%Rules` files injected into prompts |
-| `vault` | File-path helpers for notes |
-| `merger` | Pure-atomic / container / source-bound note merge |
-| `mcp` | Axum HTTP server, JSON-RPC 2.0 dispatcher, 5 tools |
-
----
-
-## Configuration
-
-`anansi.toml` (generated by `anansi2 init`):
-
-```toml
-[paths]
-web_dir = "web"          # where atomic notes are written
-rules_dir = "%Rules"     # %Rules/*.md loaded into prompts
-templates_dir = "templates"
-db_file = "web.db"
-
-[llm]
-backend = "ollama"
-url = "http://localhost:11434"
-model = "qwen2.5:14b"
-n_ctx = 16384
-timeout_s = 600
-
-[server]
-mcp_port = 3738
-host = "0.0.0.0"
-read_only = false
-```
-
-**Environment variable overrides** (checked after TOML is loaded):
-
-| Variable | Overrides |
-|----------|-----------|
-| `ANANSI_OLLAMA_URL` | `llm.url` |
-| `ANANSI_OLLAMA_MODEL` | `llm.model` |
-| `ANANSI_MCP_PORT` | `server.mcp_port` |
-
----
-
-## Development
-
-```sh
-# Type-check everything
-cargo check
-
-# Run all unit tests
-cargo test --lib
-
-# Run the integration test (requires a running Ollama instance)
-cargo test --test integration -- --nocapture
-```
-
-Build docs are in `docs/`:
-- `anansi-v2-build-01-foundation.md` — DB schema, migrations, config
-- `anansi-v2-build-02-pipeline.md` — LLM passes, template system, merger
-- `anansi-v2-build-03-interfaces.md` — MCP server, CLI, Docker, Claude plugin
+| `src/mcp.rs` | Axum HTTP server, JSON-RPC 2.0 dispatcher |
+| `src/inbox.rs` | Background watcher, 3-stage pipeline orchestration |
+| `src/llm.rs` | Multi-backend LLM client (gemini, openrouter, codex, ollama) |
+| `src/atomized_ingest.rs` | Parses atomized markdown → PostgreSQL |
+| `src/db.rs` | PostgreSQL connection, migrations, helper queries |
+| `src/embed.rs` | Gemini text-embedding-004 vector generation |
+| `src/config.rs` | `anansi.toml` + env-var loading |
 
 ---
 
