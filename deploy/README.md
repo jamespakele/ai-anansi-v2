@@ -61,16 +61,7 @@ backend = "openrouter"
 model = "google/gemini-2.5-pro"
 ```
 
-### 4 — Get the skills (required for inbox pipeline)
-
-The inbox atomization pipeline reads skill files to build its prompts. Clone
-the skills folder — it's a small collection of plain Markdown files:
-
-```bash
-git clone https://github.com/jamespakele/anansi-skills skills
-```
-
-### 5 — Start the stack
+### 4 — Start the stack
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d

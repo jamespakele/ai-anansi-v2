@@ -24,6 +24,9 @@ RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib
 WORKDIR /app
 
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/anansi2 /usr/local/bin/anansi2
+# Bake in the skill files so the inbox pipeline works out of the box.
+# Skills live at /app/skills — override via skills_dir in anansi.toml if needed.
+COPY claude-cowork/plugins/r2-anansi.plugin/skills /app/skills
 
 EXPOSE 3738
 

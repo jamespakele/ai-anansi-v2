@@ -129,7 +129,7 @@ pub struct InboxConfig {
 
 fn default_inbox_watch_dir() -> String { "/data/inbox".to_string() }
 fn default_inbox_archive_dir() -> String { "/data/archive".to_string() }
-fn default_skills_dir() -> String { "/data/skills".to_string() }
+fn default_skills_dir() -> String { "/app/skills".to_string() }
 fn default_poll_interval_secs() -> u64 { 30 }
 
 impl Default for InboxConfig {

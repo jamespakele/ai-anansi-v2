@@ -27,7 +27,9 @@ services:
       - "127.0.0.1:3738:3738"
     volumes:
       - ./data:/data
-      - ./skills:/data/skills:ro    # r2-anansi plugin skills (see README)
+      # Skills are baked into the image at /app/skills.
+      # To use custom skills, mount them and set skills_dir in anansi.toml:
+      # - ./my-skills:/app/skills:ro
     environment:
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
       - ANANSI_SKILL_TOKEN=${ANANSI_SKILL_TOKEN:-}
