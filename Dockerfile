@@ -1,7 +1,8 @@
 # Build stage
 FROM rust:latest AS builder
 
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y pkg-config musl-tools && rm -rf /var/lib/apt/lists/*
+RUN rustup target add x86_64-unknown-linux-musl
 
 WORKDIR /app
 
@@ -13,7 +14,7 @@ COPY %Rules ./%Rules
 COPY prompts ./prompts
 COPY anansi.toml.example ./anansi.toml.example
 
-RUN cargo build --release
+RUN cargo build --release --target x86_64-unknown-linux-musl
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -22,7 +23,7 @@ RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib
 
 WORKDIR /app
 
-COPY --from=builder /app/target/release/anansi2 /usr/local/bin/anansi2
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/anansi2 /usr/local/bin/anansi2
 
 EXPOSE 3738
 
