@@ -32,7 +32,7 @@ Edit `.env` — fill in `POSTGRES_PASSWORD` and your LLM choice:
 
 ### 3 — Configure your LLM
 
-Edit `anansi-data/anansi/anansi.toml` — it defaults to Gemini. Switch backends here:
+Edit `anansi.toml` — it defaults to Gemini. Switch backends here:
 
 **Gemini (default):** just set `ANANSI_GEMINI_API_KEY` in `.env` — no toml changes needed.
 

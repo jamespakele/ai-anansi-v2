@@ -21,6 +21,7 @@ services:
       - "127.0.0.1:3738:3738"
     volumes:
       - ./anansi-data:/data
+      - ./anansi.toml:/data/anansi/anansi.toml:ro  # config — edit this to switch LLM backend
       # Skills are baked into the image at /app/skills.
       # To use custom skills, mount them and set skills_dir in anansi.toml:
       # - ./my-skills:/app/skills:ro

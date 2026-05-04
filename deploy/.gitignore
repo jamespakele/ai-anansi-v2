@@ -1,16 +1,5 @@
-# Ignore all runtime data inside anansi-data/
+# Runtime data — Docker-managed, never commit
 anansi-data/
-
-# But track the config file — no secrets in it, unlike .env
-!anansi-data/
-!anansi-data/anansi/
-!anansi-data/anansi/anansi.toml
-
-# And track the placeholder dirs so they exist on fresh clone
-!anansi-data/inbox/
-!anansi-data/inbox/.gitkeep
-!anansi-data/archive/
-!anansi-data/archive/.gitkeep
 
 # Never commit .env — it contains passwords
 .env
