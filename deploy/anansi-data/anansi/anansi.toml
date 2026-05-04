@@ -1,0 +1,21 @@
+[paths]
+# All path fields have sensible defaults — section must be present but can be empty.
+
+[server]
+mcp_port = 3738
+host = "0.0.0.0"
+
+[llm]
+backend = "gemini"
+timeout_s = 300
+
+[llm.gemini]
+model = "gemini-2.5-pro"
+
+[inbox]
+enabled = true
+watch_dir = "/data/inbox"
+archive_dir = "/data/archive"
+# skills_dir defaults to /app/skills (baked into the image)
+poll_interval_secs = 30
+llm_backend = "gemini"

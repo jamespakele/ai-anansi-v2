@@ -29,20 +29,12 @@ Edit `.env` — fill in `POSTGRES_PASSWORD` and your LLM choice:
 | **Ollama** + `qwen2.5:14b` pulled | See `anansi.toml` below |
 | **OpenRouter** account | `ANANSI_OPENROUTER_API_KEY=sk-or-...` |
 
-### 3 — Set up anansi.toml
 
-```bash
-mkdir -p anansi-data/anansi anansi-data/inbox anansi-data/archive
-cp anansi.toml.example anansi-data/anansi/anansi.toml
-```
+### 3 — Configure your LLM
 
-Edit `anansi-data/anansi/anansi.toml` for your LLM:
+Edit `anansi-data/anansi/anansi.toml` — it defaults to Gemini. Switch backends here:
 
-**Gemini API:**
-```toml
-[llm]
-backend = "gemini"
-```
+**Gemini (default):** just set `ANANSI_GEMINI_API_KEY` in `.env` — no toml changes needed.
 
 **Ollama (no API key — runs on your machine):**
 ```toml
