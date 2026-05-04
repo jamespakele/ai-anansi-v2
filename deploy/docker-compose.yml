@@ -1,10 +1,3 @@
-# Anansi — local deploy
-# Uses the pre-built image from GHCR — no source code or Rust toolchain needed.
-#
-# REQUIRED .env file (copy from .env.example):
-#   POSTGRES_PASSWORD=<strong-random-password>
-#   ANANSI_GEMINI_API_KEY=<your-key>   ← or use Ollama (see .env.example)
-
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -13,7 +6,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=anansi
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data   # named volume — Docker managed
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U anansi -d anansi"]
       interval: 5s
@@ -23,10 +16,11 @@ services:
 
   anansi:
     image: ghcr.io/jamespakele/anansi2:latest
+    dns_search: []   # prevent Tailscale search domain from breaking Docker DNS
     ports:
       - "127.0.0.1:3738:3738"
     volumes:
-      - ./data:/data
+      - ./anansi-data:/data
       # Skills are baked into the image at /app/skills.
       # To use custom skills, mount them and set skills_dir in anansi.toml:
       # - ./my-skills:/app/skills:ro
@@ -39,3 +33,6 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  postgres-data:   # persistent, Docker-managed PostgreSQL storage
