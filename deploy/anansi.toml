@@ -12,6 +12,26 @@ timeout_s = 300
 [llm.gemini]
 model = "gemini-2.5-pro"
 
+# ── Ollama (local, no API key) ────────────────────────────────────────────────
+# Requires Ollama installed on your machine with the model pulled.
+# Switch by replacing the [llm] block above with:
+#
+# [llm]
+# backend = "ollama"
+# url     = "http://host.docker.internal:11434"
+# model   = "qwen2.5:14b"
+# timeout_s = 600
+
+# ── OpenRouter (many models, one key) ─────────────────────────────────────────
+# Set ANANSI_OPENROUTER_API_KEY in .env, then:
+#
+# [llm]
+# backend = "openrouter"
+# timeout_s = 300
+#
+# [llm.openrouter]
+# model = "google/gemini-2.5-pro"
+
 [inbox]
 enabled = true
 watch_dir = "/data/inbox"
