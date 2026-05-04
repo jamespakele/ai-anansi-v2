@@ -32,11 +32,11 @@ Edit `.env` — fill in `POSTGRES_PASSWORD` and your LLM choice:
 ### 3 — Set up anansi.toml
 
 ```bash
-mkdir -p data/anansi
-cp anansi.toml.example data/anansi/anansi.toml
+mkdir -p anansi-data/anansi anansi-data/inbox anansi-data/archive
+cp anansi.toml.example anansi-data/anansi/anansi.toml
 ```
 
-Edit `data/anansi/anansi.toml` for your LLM:
+Edit `anansi-data/anansi/anansi.toml` for your LLM:
 
 **Gemini API:**
 ```toml
@@ -67,7 +67,7 @@ model = "google/gemini-2.5-pro"
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 ```
 
-### 6 — Get your HTTPS URL
+### 5 — Get your HTTPS URL
 
 Claude Cowork requires HTTPS. The local overlay starts a free Cloudflare tunnel:
 
@@ -76,7 +76,9 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml logs tunnel
 # Look for: https://abc123.trycloudflare.com
 ```
 
-### 7 — Connect Claude Cowork
+The URL changes each time you restart the stack — just update it in Cowork when that happens.
+
+### 6 — Connect Claude Cowork
 
 Claude Cowork → Settings → MCP → Add server → paste the `https://...trycloudflare.com` URL.
 
@@ -84,7 +86,7 @@ Claude Cowork → Settings → MCP → Add server → paste the `https://...tryc
 
 ## Using the inbox
 
-Drop any `.md` or `.txt` file into `./data/inbox/`. Anansi picks it up within
+Drop any `.md` or `.txt` file into `./anansi-data/inbox/`. Anansi picks it up within
 30 seconds, runs the full PARA → Smart Brevity pipeline, and ingests the results
 into PostgreSQL. Check progress:
 
@@ -98,8 +100,12 @@ docker compose logs anansi -f
 
 | Tool | What it does |
 |------|-------------|
-| `anansi_search` | Keyword search across all notes |
-| `anansi_search_semantic` | Vector similarity search |
-| `anansi_remember` | Ingest a document via MCP |
-| `anansi_embed` | Generate embeddings for notes |
-| `anansi_purge` | Remove an ingestion batch |
+| `anansi_search` | Full-text search across all notes |
+| `anansi_filter` | Filter notes by type or date range |
+| `anansi_get` | Fetch a single note by ID |
+| `anansi_edges` | Graph traversal from a note (BFS) |
+| `anansi_export_context` | Export a subgraph as a flat markdown doc |
+| `anansi_export_vault` | Export a subgraph as an Obsidian vault zip |
+| `anansi_capture` | Ingest a document via MCP |
+| `anansi_relate` | Manually link two notes |
+| `anansi_purge` | Remove an entire ingestion batch |
