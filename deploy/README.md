@@ -16,8 +16,8 @@ Claude via MCP.
 ### 2 — Clone this folder and configure
 
 ```bash
-git clone https://github.com/jamespakele/anansi-deploy
-cd anansi-deploy
+git clone https://github.com/jamespakele/ai-anansi-v2
+cd ai-anansi-v2/deploy
 cp .env.example .env
 ```
 
@@ -91,7 +91,7 @@ Drop any `.md` or `.txt` file into `./anansi-data/inbox/`. Anansi picks it up wi
 into PostgreSQL. Check progress:
 
 ```bash
-docker compose logs anansi -f
+docker compose -f docker-compose.yml -f docker-compose.local.yml logs anansi -f
 ```
 
 ---
