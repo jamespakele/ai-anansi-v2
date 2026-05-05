@@ -145,10 +145,17 @@ fn extract_concepts(text: &str) -> (Vec<String>, String) {
     (concepts, body_lines.join("\n"))
 }
 
+/// Returns true if the line is a heading whose label matches the given name.
+/// Uses substring matching so `## Lede`, `### Lede`, `#### Lede` etc. all match
+/// `section_contains(line, "Lede")` because every deeper heading contains `"## Lede"`.
+fn section_contains(line: &str, label: &str) -> bool {
+    line.contains(&format!("## {label}"))
+}
+
 fn parse_block(segment: &str) -> Result<ParsedBlock> {
     let lines: Vec<&str> = segment.lines().collect();
 
-    // Find first non-empty line — must match the block header regex
+    // Find first non-empty line — must match the block header
     let header_idx = lines
         .iter()
         .position(|l| !l.trim().is_empty())
@@ -157,83 +164,137 @@ fn parse_block(segment: &str) -> Result<ParsedBlock> {
     let header_line = lines[header_idx].trim();
     let (address, title, entity_type) = parse_block_header(header_line)?;
 
-    // Find ### Edges boundary
-    let edges_idx = lines
-        .iter()
-        .skip(header_idx + 1)
-        .position(|l| is_edges_heading(l))
-        .map(|rel| rel + header_idx + 1);
+    let body_lines = &lines[header_idx + 1..];
 
-    let body_lines: &[&str];
-    let edge_lines: &[&str];
+    // ── Labeled-section parsing ────────────────────────────────────────────
+    // If the block uses explicit ## Lede / ## Why / ## Content / ## Edges
+    // headings (at any depth ≥ 2), extract fields by label rather than position.
+    let has_lede_heading = body_lines.iter().any(|l| section_contains(l, "Lede"));
 
-    if let Some(ei) = edges_idx {
-        body_lines = &lines[header_idx + 1..ei];
-        edge_lines = &lines[ei + 1..];
-    } else {
-        body_lines = &lines[header_idx + 1..];
-        edge_lines = &[];
+    if has_lede_heading {
+        return parse_block_labeled(body_lines, header_line, address, title, entity_type);
     }
 
-    // Find lede: first non-empty line in body_lines
-    let lede_idx = body_lines
+    // ── Legacy positional parsing (backwards compat) ───────────────────────
+    parse_block_positional(body_lines, header_line, address, title, entity_type)
+}
+
+/// Labeled-section parser: reads ## Lede, ## Why, ## Content, ## Edges at any heading depth.
+fn parse_block_labeled(
+    body_lines: &[&str],
+    header_line: &str,
+    address: String,
+    title: String,
+    entity_type: String,
+) -> Result<ParsedBlock> {
+    let mut lede_lines: Vec<&str> = Vec::new();
+    let mut why_lines: Vec<&str> = Vec::new();
+    let mut content_lines: Vec<&str> = Vec::new();
+    let mut edge_lines: Vec<&str> = Vec::new();
+
+    #[derive(PartialEq)]
+    enum Section { None, Lede, Why, Content, Edges }
+    let mut current = Section::None;
+
+    for line in body_lines {
+        if section_contains(line, "Lede") {
+            current = Section::Lede;
+            continue;
+        } else if section_contains(line, "Why") {
+            current = Section::Why;
+            continue;
+        } else if section_contains(line, "Content") {
+            current = Section::Content;
+            continue;
+        } else if section_contains(line, "Edges") {
+            current = Section::Edges;
+            continue;
+        }
+        match current {
+            Section::Lede    => lede_lines.push(line),
+            Section::Why     => why_lines.push(line),
+            Section::Content => content_lines.push(line),
+            Section::Edges   => edge_lines.push(line),
+            Section::None    => {}
+        }
+    }
+
+    let lede = lede_lines.join("\n").trim().to_string();
+    if lede.is_empty() {
+        return Err(anyhow!("labeled block has empty ## Lede section: {header_line}"));
+    }
+
+    let why_str = why_lines.join("\n").trim().to_string();
+    let why = if why_str.is_empty() { None } else { Some(why_str) };
+
+    let content_str = content_lines.join("\n").trim().to_string();
+    let content = if content_str.is_empty() { None } else { Some(content_str) };
+
+    let edges = parse_edge_lines(&edge_lines);
+
+    Ok(ParsedBlock { address, title, entity_type, lede, why, content, edges })
+}
+
+/// Legacy positional parser: lede = first line, why = **Why it matters:** line, rest = content.
+fn parse_block_positional(
+    body_lines: &[&str],
+    header_line: &str,
+    address: String,
+    title: String,
+    entity_type: String,
+) -> Result<ParsedBlock> {
+    // Find ### Edges boundary
+    let edges_idx = body_lines
+        .iter()
+        .position(|l| is_edges_heading(l));
+
+    let (pre_edge, edge_lines) = if let Some(ei) = edges_idx {
+        (&body_lines[..ei], &body_lines[ei + 1..])
+    } else {
+        (body_lines, &[][..])
+    };
+
+    let lede_idx = pre_edge
         .iter()
         .position(|l| !l.trim().is_empty())
         .ok_or_else(|| anyhow!("block has no lede: {header_line}"))?;
 
-    let lede_candidate = body_lines[lede_idx].trim();
-
-    // Guard: if lede looks like a Why line, the block is malformed (missing lede)
+    let lede_candidate = pre_edge[lede_idx].trim();
     if lede_candidate.starts_with("**Why it matters:**") {
         return Err(anyhow!(
             "block missing lede — first body line is a Why line: {header_line}"
         ));
     }
-
     let lede = lede_candidate.to_string();
 
-    // Scan body_lines for a Why line (after the lede)
-    let why_idx = body_lines
+    let why_idx = pre_edge
         .iter()
         .skip(lede_idx + 1)
         .position(|l| l.trim().starts_with("**Why it matters:**"))
         .map(|rel| rel + lede_idx + 1);
 
     let why: Option<String>;
-    let content_lines: &[&str];
+    let content_slice: &[&str];
 
     if let Some(wi) = why_idx {
-        let why_text = body_lines[wi]
+        let why_text = pre_edge[wi]
             .trim()
             .trim_start_matches("**Why it matters:**")
             .trim()
             .to_string();
         why = Some(why_text);
-        content_lines = &body_lines[wi + 1..];
+        content_slice = &pre_edge[wi + 1..];
     } else {
         why = None;
-        content_lines = &body_lines[lede_idx + 1..];
+        content_slice = &pre_edge[lede_idx + 1..];
     }
 
-    let content_str = content_lines.join("\n").trim().to_string();
-    let content = if content_str.is_empty() {
-        None
-    } else {
-        Some(content_str)
-    };
+    let content_str = content_slice.join("\n").trim().to_string();
+    let content = if content_str.is_empty() { None } else { Some(content_str) };
 
-    // Parse edge lines
     let edges = parse_edge_lines(edge_lines);
 
-    Ok(ParsedBlock {
-        address,
-        title,
-        entity_type,
-        lede,
-        why,
-        content,
-        edges,
-    })
+    Ok(ParsedBlock { address, title, entity_type, lede, why, content, edges })
 }
 
 fn parse_block_header(line: &str) -> Result<(String, String, String)> {
@@ -297,9 +358,8 @@ fn parse_block_header(line: &str) -> Result<(String, String, String)> {
 }
 
 fn is_edges_heading(line: &str) -> bool {
-    let t = line.trim();
-    // Must be exactly "### Edges" (possibly with leading/trailing whitespace)
-    t.starts_with("###") && t.trim_start_matches('#').trim() == "Edges"
+    // Legacy: matches ### Edges at any heading depth
+    section_contains(line, "Edges")
 }
 
 fn parse_edge_lines(lines: &[&str]) -> Vec<ParsedEdge> {

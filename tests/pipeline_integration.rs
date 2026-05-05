@@ -62,7 +62,7 @@ async fn make_context(
     root: &Path,
     llm: Box<dyn LlmClient>,
 ) -> Option<IngestContext> {
-    use anansi2::config::{Config, LlmConfig, InferSettings, PathsConfig, ServerConfig, PipelineConfig};
+    use anansi2::config::{Config, LlmConfig, InferSettings, PathsConfig, ServerConfig, PipelineConfig, InboxConfig};
     use anansi2::db::connect_and_migrate;
     use anansi2::rules::RuleRegistry;
     use anansi2::template::TemplateRegistry;
@@ -108,6 +108,7 @@ async fn make_context(
         },
         server: ServerConfig::default(),
         pipeline: PipelineConfig { mode: None },
+        inbox: InboxConfig::default(),
         database_url,
     };
 
