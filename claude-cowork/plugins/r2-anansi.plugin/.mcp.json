@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "anansi": {
+      "type": "http",
+      "url": "https://vps.pakele.ai"
+    }
+  }
+}
