@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::atomized_ingest;
+
 use crate::db::{self, EdgeRecord, now_rfc3339};
 use crate::embed;
 use crate::export;
@@ -756,33 +756,31 @@ async fn tool_ingest_atomized(state: McpState, id: Value, args: Value) -> Json<V
         return json_rpc_err(id, -32602, "must provide either content or path");
     };
 
-    let para_toc = args.get("para_toc").and_then(|v| v.as_str());
-    let source_path = args.get("source_path").and_then(|v| v.as_str());
+    // Write to queue dir — the queue watcher ingests it asynchronously
+    let queue_dir = &ctx.config.inbox.queue_dir;
+    let filename = format!("{}.md", Uuid::new_v4());
+    let queue_path = std::path::Path::new(queue_dir).join(&filename);
 
-    match atomized_ingest::ingest_atomized(&ctx.db, &content_str, para_toc, source_path).await {
-        Ok(report) if report.status == "already_ingested" => json_rpc_ok(
-            id,
-            json!({
-                "content": [{
-                    "type": "text",
-                    "text": serde_json::to_string(&json!({
-                        "status": "already_ingested",
-                        "source_id": report.source_id,
-                    })).unwrap_or_default()
-                }]
-            }),
-        ),
-        Ok(report) => json_rpc_ok(
-            id,
-            json!({
-                "content": [{
-                    "type": "text",
-                    "text": serde_json::to_string(&report).unwrap_or_default()
-                }]
-            }),
-        ),
-        Err(e) => json_rpc_err(id, -32000, &format!("Ingest failed: {e:#}")),
+    if let Err(e) = tokio::fs::create_dir_all(queue_dir).await {
+        return json_rpc_err(id, -32000, &format!("Cannot create queue dir: {e}"));
     }
+    if let Err(e) = tokio::fs::write(&queue_path, &content_str).await {
+        return json_rpc_err(id, -32000, &format!("Failed to write to queue: {e}"));
+    }
+
+    json_rpc_ok(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({
+                    "status": "queued",
+                    "queue_file": filename,
+                    "message": "Atomized content queued for ingestion. Use anansi_filter or anansi_search to verify results in a few seconds."
+                })).unwrap_or_default()
+            }]
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------

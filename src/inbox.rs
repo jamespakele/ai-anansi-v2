@@ -22,7 +22,6 @@ use sha2::{Sha256, Digest};
 use tokio::fs;
 use tokio::time::sleep;
 
-use crate::atomized_ingest::ingest_atomized;
 use crate::config::Config;
 use crate::db::DbPool;
 use crate::llm::{self, InferOpts, LlmClient};
@@ -38,15 +37,14 @@ const SKILL_2:  &str = "sb-atomize";
 pub async fn run_inbox_watcher(config: Arc<Config>, pool: DbPool) {
     let inbox = &config.inbox;
 
-    if let Err(e) = tokio::fs::create_dir_all(&inbox.watch_dir).await {
-        eprintln!("[inbox] could not create watch_dir '{}': {e}", inbox.watch_dir);
-    }
-    if let Err(e) = tokio::fs::create_dir_all(&inbox.archive_dir).await {
-        eprintln!("[inbox] could not create archive_dir '{}': {e}", inbox.archive_dir);
+    for dir in [inbox.watch_dir.as_str(), inbox.archive_dir.as_str(), inbox.queue_dir.as_str()] {
+        if let Err(e) = tokio::fs::create_dir_all(dir).await {
+            eprintln!("[inbox] could not create dir '{dir}': {e}");
+        }
     }
 
-    eprintln!("[inbox] watcher started — watching '{}' every {}s (skills: {})",
-        inbox.watch_dir, inbox.poll_interval_secs, inbox.skills_dir);
+    eprintln!("[inbox] watcher started — watching '{}' every {}s (skills: {}, queue: {})",
+        inbox.watch_dir, inbox.poll_interval_secs, inbox.skills_dir, inbox.queue_dir);
 
     let interval = Duration::from_secs(inbox.poll_interval_secs);
     loop {
@@ -212,18 +210,26 @@ async fn process_file(config: &Arc<Config>, pool: &DbPool, source_path: &Path) -
             fs::write(&toc_path, &toc_manifest).await?;
             log_event(&log_path, serde_json::json!({"event":"stage_end","stage":"sb-atomize","ok":true,"ts":chrono::Utc::now().to_rfc3339()})).await;
 
-            // ── Stage 3: ingest ──────────────────────────────────────────────
-            eprintln!("[inbox] [{slug}] Stage 3 — ingest");
-            log_event(&log_path, serde_json::json!({"event":"stage_start","stage":"ingest","ts":chrono::Utc::now().to_rfc3339()})).await;
+            // ── Stage 3: enqueue ─────────────────────────────────────────────
+            // Write the atomized file to q/ — the queue watcher ingests it.
+            eprintln!("[inbox] [{slug}] Stage 3 — enqueue");
+            log_event(&log_path, serde_json::json!({"event":"stage_start","stage":"enqueue","ts":chrono::Utc::now().to_rfc3339()})).await;
 
-            match ingest_atomized(pool, &atomized, Some(&toc_manifest), Some(&archived_source.to_string_lossy())).await {
-                Ok(result) => {
-                    log_event(&log_path, serde_json::json!({"event":"pipeline_end","status":"ok","source_id":result.source_id,"notes_created":result.notes_created,"ts":chrono::Utc::now().to_rfc3339()})).await;
-                    eprintln!("[inbox] [{slug}] ✓ done — {} notes created (source_id={})", result.notes_created, result.source_id);
+            let queue_path = PathBuf::from(&config.inbox.queue_dir)
+                .join(format!("{slug}-atomized.md"));
+
+            match fs::write(&queue_path, &atomized).await {
+                Ok(()) => {
+                    log_event(&log_path, serde_json::json!({
+                        "event": "pipeline_end", "status": "queued",
+                        "queue_file": queue_path.display().to_string(),
+                        "ts": chrono::Utc::now().to_rfc3339()
+                    })).await;
+                    eprintln!("[inbox] [{slug}] ✓ queued → {}", queue_path.display());
                 }
                 Err(e) => {
-                    fail_pipeline(&log_path, "ingest", &e.to_string()).await;
-                    eprintln!("[inbox] [{slug}] ingest failed: {e}");
+                    fail_pipeline(&log_path, "enqueue", &e.to_string()).await;
+                    eprintln!("[inbox] [{slug}] enqueue failed: {e}");
                     eprintln!("[inbox]   atomized file preserved: {}", atomized_path.display());
                 }
             }

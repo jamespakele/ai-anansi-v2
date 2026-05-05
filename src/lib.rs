@@ -14,3 +14,4 @@ pub mod atomized_ingest;
 pub mod export;
 pub mod embed;
 pub mod inbox;
+pub mod queue;

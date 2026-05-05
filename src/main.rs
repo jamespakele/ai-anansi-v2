@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 use anansi2::config::Config;
 use anansi2::db;
 use anansi2::inbox;
+use anansi2::queue;
 use anansi2::llm;
 use anansi2::mcp;
 use anansi2::pipeline::{ingest, IngestContext};
@@ -273,6 +274,18 @@ async fn cmd_serve(root: &Path) -> Result<()> {
     });
 
     eprintln!("[anansi2] binding to {host}:{port}");
+
+    // Always spawn the queue watcher — it polls q-atomize/ for files dropped by
+    // the inbox pipeline or anansi_ingest_atomized MCP tool.
+    {
+        let q_config = Arc::new(ctx.config.clone());
+        let q_pool = ctx.db.clone();
+        tokio::spawn(async move {
+            queue::run_queue_watcher(q_config, q_pool).await;
+        });
+        eprintln!("[anansi2] queue watcher spawned — polling '{}' every {}s",
+            ctx.config.inbox.queue_dir, ctx.config.inbox.queue_poll_interval_secs);
+    }
 
     // Spawn inbox watcher if enabled
     if ctx.config.inbox.enabled {

@@ -112,6 +112,13 @@ pub struct InboxConfig {
     /// Directory to write archive runs (default "/data/archive")
     #[serde(default = "default_inbox_archive_dir")]
     pub archive_dir: String,
+    /// Shared ingestion queue — inbox watcher and anansi_ingest_atomized both drop
+    /// atomized .md files here; the queue watcher ingests them into the DB.
+    #[serde(default = "default_queue_dir")]
+    pub queue_dir: String,
+    /// How often the queue watcher polls queue_dir (default 10s)
+    #[serde(default = "default_queue_poll_interval_secs")]
+    pub queue_poll_interval_secs: u64,
     /// Root directory of the r2-anansi plugin skills tree.
     /// Expects sub-directories: para-projects-areas/, para-resource-entities/, sb-atomize/
     /// each containing a SKILL.md and a references/ sub-directory.
@@ -127,8 +134,10 @@ pub struct InboxConfig {
     pub llm_backend: Option<String>,
 }
 
-fn default_inbox_watch_dir() -> String { "/data/inbox".to_string() }
+fn default_inbox_watch_dir() -> String { "/data/q-inbox".to_string() }
 fn default_inbox_archive_dir() -> String { "/data/archive".to_string() }
+fn default_queue_dir() -> String { "/data/q-atomize".to_string() }
+fn default_queue_poll_interval_secs() -> u64 { 10 }
 fn default_skills_dir() -> String { "/app/skills".to_string() }
 fn default_poll_interval_secs() -> u64 { 30 }
 
@@ -138,6 +147,8 @@ impl Default for InboxConfig {
             enabled: false,
             watch_dir: default_inbox_watch_dir(),
             archive_dir: default_inbox_archive_dir(),
+            queue_dir: default_queue_dir(),
+            queue_poll_interval_secs: default_queue_poll_interval_secs(),
             skills_dir: default_skills_dir(),
             poll_interval_secs: default_poll_interval_secs(),
             llm_backend: None,
