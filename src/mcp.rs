@@ -331,6 +331,19 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                         },
                         "required": ["id"]
                     }
+                },
+                {
+                    "name": "anansi_get_upload_url",
+                    "description": "Returns the HTTP upload URLs for this anansi server (inbox and atomize queues). Use the returned curl command to upload a local file directly to the server — faster than passing file content through MCP. Requires bash/terminal access (available in Claude Code).",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "local_path": {
+                                "type": "string",
+                                "description": "Optional. Local file path to embed in the returned curl command, e.g. '/home/user/my-doc.md'."
+                            }
+                        }
+                    }
                 }
             ]
         }),
@@ -364,6 +377,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_filter" => tool_filter(state, id, args).await,
         "anansi_edges" => tool_edges(state, id, args).await,
         "anansi_relate" => tool_relate(state, id, args).await,
+        "anansi_get_upload_url" => tool_get_upload_url(state, id, args).await,
         "anansi_ingest_atomized" => tool_ingest_atomized(state, id, args).await,
         "anansi_ingest_file"     => tool_ingest_file(state, id, args).await,
         "anansi_capture" => tool_capture(state, id, args).await,
@@ -743,6 +757,44 @@ async fn tool_relate(state: McpState, id: Value, args: Value) -> Json<Value> {
         ),
         Err(e) => json_rpc_err(id, -32000, &format!("Failed to insert edge: {e}")),
     }
+}
+
+// ---------------------------------------------------------------------------
+// anansi_get_upload_url
+// ---------------------------------------------------------------------------
+
+async fn tool_get_upload_url(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+
+    // Derive base URL: use configured public_url, or fall back to localhost:{port}
+    let base = ctx.config.server.public_url
+        .as_deref()
+        .map(|u| u.trim_end_matches('/').to_string())
+        .unwrap_or_else(|| format!("http://localhost:{}", ctx.config.server.mcp_port));
+
+    let inbox_url   = format!("{base}/upload/inbox");
+    let atomize_url = format!("{base}/upload/atomize");
+
+    let local_path = args.get("local_path").and_then(|v| v.as_str()).unwrap_or("{local_path}");
+
+    let curl_inbox   = format!("curl -F 'file=@{local_path}' {inbox_url}");
+    let curl_atomize = format!("curl -F 'file=@{local_path}' {atomize_url}");
+
+    json_rpc_ok(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({
+                    "inbox_url":   inbox_url,
+                    "atomize_url": atomize_url,
+                    "curl_inbox":  curl_inbox,
+                    "curl_atomize": curl_atomize,
+                    "note": "inbox = full pipeline (para-process → sb-atomize → DB). atomize = already-atomized content → DB directly."
+                })).unwrap_or_default()
+            }]
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
