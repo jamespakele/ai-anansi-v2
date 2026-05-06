@@ -1,86 +1,113 @@
 ---
 name: anansi-ingest-file
 description: >
-  Upload a local file directly to the Anansi server queue using a curl command.
-  Calls anansi_get_upload_url to discover the correct server URL dynamically,
-  then executes a curl upload — faster than passing file content through MCP.
-  Use for raw source documents (inbox pipeline) or already-atomized files
-  (atomize queue). Requires bash/terminal access (Claude Code context).
-  Triggers: "upload this file to anansi", "ingest this file", "send to anansi",
-  "queue this file", "/anansi-ingest-file", "anansi-ingest-file".
-argument-hint: "[local file path] [inbox|atomize (default: inbox)]"
+  Sends a raw document to the Anansi server-side inbox pipeline. Prefers
+  direct file upload via curl (calls anansi_get_upload_url + bash) when a
+  local file path is given — faster and avoids passing large content through
+  MCP. Falls back to anansi_ingest_file with content string for pasted text
+  or when bash is unavailable. The server runs the full pipeline:
+  para-projects-areas + para-resource-entities → sb-atomize → DB.
+  Triggers: "ingest this file", "send to inbox", "drop this in the inbox",
+  "server-side ingest", "anansi-ingest-file", "/anansi-ingest-file",
+  "queue this for anansi", "ingest this document", "upload to anansi inbox",
+  "drop this in anansi", "process this server-side", "upload this file to anansi",
+  "send to anansi", "fire and forget to anansi", "let the server handle this".
+argument-hint: "[file path or pasted document content]"
 ---
 
 # anansi-ingest-file
 
-Upload a local file to the Anansi server without reading its content into the
-conversation. The server receives the file and queues it for processing.
+Drop a raw document into the Anansi server-side inbox pipeline.
+
+The server handles everything: PARA extraction, Smart Brevity atomization,
+and ingest into the knowledge base. You hand it content; the server does
+the work.
+
+This is the **server-side path**. Use it when:
+- You want fire-and-forget — no need to watch the pipeline steps
+- The document is large and client-side processing would be slow
+- You're batching several documents quickly
+
+Use **r2-remember** instead when you want to review the pipeline output
+(atomized notes, TOC) before it enters the vault.
 
 ---
 
-## When to use which queue
+## Step 1 — Resolve input and choose path
 
-- **inbox** (default): Raw source document — meeting notes, article, book chapter,
-  earnings release, etc. The server runs the full pipeline:
-  `para-projects-areas` + `para-resource-entities` → `sb-atomize` → DB.
+**File path given AND bash is available (Claude Code context):**
+→ Use the **curl upload path** (Step 2A). Faster, no content in MCP.
 
-- **atomize**: Already-atomized content (output of `sb-atomize` skill). Skips
-  the LLM pipeline and ingests directly into the database.
-
----
-
-## Steps
-
-### Step 1 — Discover the upload URL
-
-Call `anansi_get_upload_url` with the local file path:
-
-```
-anansi_get_upload_url { "local_path": "/path/to/file.md" }
-```
-
-The tool returns:
-- `curl_inbox` — ready-to-run curl command for the inbox queue
-- `curl_atomize` — ready-to-run curl command for the atomize queue
-- `inbox_url` / `atomize_url` — raw URLs if you need to construct your own command
-
-### Step 2 — Execute the curl command
-
-Run the appropriate curl command from the tool response using bash:
-
-**For a raw source document (full pipeline):**
-```bash
-curl -F 'file=@/path/to/file.md' https://vps.pakele.ai/upload/inbox
-```
-
-**For already-atomized content:**
-```bash
-curl -F 'file=@/path/to/atomized.md' https://vps.pakele.ai/upload/atomize
-```
-
-The server responds with:
-```json
-{
-  "status": "queued",
-  "filename": "file.md",
-  "queue_dir": "/data/q-inbox",
-  "bytes": 12345
-}
-```
-
-### Step 3 — Confirm and report
-
-Tell the user the file has been queued and what to expect:
-- **inbox queue**: Processing takes 1–3 minutes (LLM pipeline). Use
-  `anansi_filter` or `anansi_search` after a couple of minutes to verify.
-- **atomize queue**: Processing is fast (seconds). The queue watcher polls
-  every 10 seconds.
+**Pasted content, or bash is not available:**
+→ Use the **content path** (Step 2B).
 
 ---
 
-## Notes
+## Step 2A — Curl upload path (preferred for file paths)
 
-- Never read file content into the conversation — that's what this skill avoids.
-- If `anansi_get_upload_url` returns a `localhost` URL but you're on a remote
-  server, the admin needs to set `public_url` in `anansi.toml` under `[server]`.
-- Path traversal is blocked — filename must not contain `/` or `..`.
+1. Call `anansi_get_upload_url` with the local file path:
+   ```
+   anansi_get_upload_url { "local_path": "/path/to/file.md" }
+   ```
+2. The tool returns `curl_inbox` — a ready-to-run curl command. Execute it via bash:
+   ```bash
+   curl -F 'file=@/path/to/file.md' https://vps.pakele.ai/upload/inbox
+   ```
+3. Expected response: `{ "status": "queued", "filename": "...", "bytes": N }`
+
+Do **not** read the file content into the conversation.
+
+---
+
+## Step 2B — Content path (pasted content or no bash)
+
+1. Use the pasted text as-is. Do not rewrite or summarize.
+2. Derive a filename from the first heading or first line, kebab-cased with
+   a `.md` extension (e.g. `broadband-hui-notes.md`). If no heading,
+   use `pasted-{ISO-date}.md`.
+3. Call `anansi_ingest_file`:
+   ```json
+   {
+     "content": "<CONTENT>",
+     "filename": "<derived filename>",
+     "source": "skill"
+   }
+   ```
+   Always include `"source": "skill"`.
+
+---
+
+## Step 3 — Report
+
+```
+*Anansi inbox* — {filename}
+• Queued for server-side pipeline
+• {any job_id or queue confirmation from the response}
+• The server will run: PARA extraction → sb-atomize → ingest
+```
+
+If the response includes a queue ID, job reference, or status field, include
+it in the report so the user has a handle to track the run.
+
+---
+
+## Error handling
+
+| Situation | Action |
+|---|---|
+| File path given but file not found | Stop. Confirm path with the user. |
+| `anansi_ingest_file` not available | Tell the user. Offer to save content to disk for manual upload when the connector is back. |
+| `anansi_ingest_file` returns an error | Show the error verbatim. Offer to save CONTENT to disk so the user can retry. |
+| Content is already atomized (has `<!-- anansi-atomize: ... -->` header) | Note this to the user. The server will re-atomize it. If the user wants direct ingest instead, suggest using r2-remember Path C (`anansi_ingest_atomized`). |
+
+---
+
+## vs. r2-remember
+
+| | anansi-ingest-file | r2-remember (Path B) |
+|---|---|---|
+| Pipeline location | Server-side | Client-side (in-conversation) |
+| Intermediate output | None (opaque) | Atomized .md + TOC files on disk |
+| Speed | Fast drop | Slower; full pipeline visible |
+| Reviewability | None before ingest | Review atomized notes before ingest |
+| Best for | Large files, batches, fire-and-forget | When you want to verify what goes in |
