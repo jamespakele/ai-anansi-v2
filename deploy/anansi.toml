@@ -4,6 +4,7 @@
 [server]
 mcp_port = 3738
 host = "0.0.0.0"
+public_url = "https://vps.pakele.ai"
 
 [llm]
 backend = "gemini"
