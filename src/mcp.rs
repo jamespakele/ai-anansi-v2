@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
-    extract::State,
+    extract::{Multipart, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -94,6 +94,8 @@ pub fn router(ctx: Arc<IngestContext>) -> Router {
         .route("/", post(handle_json_rpc))
         .route("/health", get(handle_health))
         .route("/exports/{filename}", get(handle_export_download))
+        .route("/upload/inbox",   post(handle_upload_inbox))
+        .route("/upload/atomize", post(handle_upload_atomize))
         .with_state(McpState { ctx })
 }
 
@@ -1114,6 +1116,111 @@ async fn handle_health(State(state): State<McpState>) -> impl IntoResponse {
     };
 
     (status_code, Json(body))
+}
+
+// ---------------------------------------------------------------------------
+// File upload endpoints  POST /upload/inbox  and  POST /upload/atomize
+// ---------------------------------------------------------------------------
+//
+// curl -F "file=@myfile.md" http://localhost:3738/upload/inbox
+// curl -F "file=@atomized.md" http://localhost:3738/upload/atomize
+//
+// Uses ctx.config.inbox.watch_dir / queue_dir — same paths as the MCP tools
+// and the queue/inbox watchers — so no path adjustment is needed for deploy.
+
+async fn handle_upload_inbox(
+    State(state): State<McpState>,
+    multipart: Multipart,
+) -> impl IntoResponse {
+    handle_upload(state, multipart, UploadDest::Inbox).await
+}
+
+async fn handle_upload_atomize(
+    State(state): State<McpState>,
+    multipart: Multipart,
+) -> impl IntoResponse {
+    handle_upload(state, multipart, UploadDest::Atomize).await
+}
+
+enum UploadDest { Inbox, Atomize }
+
+async fn handle_upload(
+    state: McpState,
+    mut multipart: Multipart,
+    dest: UploadDest,
+) -> impl IntoResponse {
+    let ctx = &state.ctx;
+
+    if ctx.config.server.read_only {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "this anansi instance is read-only" })),
+        );
+    }
+
+    let dir = match dest {
+        UploadDest::Inbox   => &ctx.config.inbox.watch_dir,
+        UploadDest::Atomize => &ctx.config.inbox.queue_dir,
+    };
+
+    // Extract the `file` field from the multipart body
+    while let Ok(Some(field)) = multipart.next_field().await {
+        // Accept field named "file" or the first unnamed field
+        let field_name = field.name().unwrap_or("").to_string();
+        if !field_name.is_empty() && field_name != "file" {
+            continue;
+        }
+
+        // Determine filename: from Content-Disposition, or generate timestamp
+        let filename = field
+            .file_name()
+            .filter(|n| !n.is_empty() && !n.contains('/') && !n.contains(".."))
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| {
+                let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+                format!("upload-{ts}.md")
+            });
+
+        let data = match field.bytes().await {
+            Ok(b) => b,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": format!("failed to read upload: {e}") })),
+                );
+            }
+        };
+
+        if let Err(e) = tokio::fs::create_dir_all(dir).await {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("cannot create dir: {e}") })),
+            );
+        }
+
+        let dest_path = std::path::Path::new(dir).join(&filename);
+        if let Err(e) = tokio::fs::write(&dest_path, &data).await {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("write failed: {e}") })),
+            );
+        }
+
+        return (
+            StatusCode::OK,
+            Json(json!({
+                "status": "queued",
+                "filename": filename,
+                "queue_dir": dir,
+                "bytes": data.len(),
+            })),
+        );
+    }
+
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "error": "no file field found in multipart body" })),
+    )
 }
 
 // ---------------------------------------------------------------------------
