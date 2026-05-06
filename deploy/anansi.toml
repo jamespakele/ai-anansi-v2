@@ -34,8 +34,10 @@ model = "gemini-2.5-pro"
 
 [inbox]
 enabled = true
-watch_dir = "/data/inbox"
+watch_dir  = "/data/q-inbox"
 archive_dir = "/data/archive"
+queue_dir  = "/data/q-atomize"
+queue_poll_interval_secs = 10
 # skills_dir defaults to /app/skills (baked into the image)
 poll_interval_secs = 30
 llm_backend = "gemini"
