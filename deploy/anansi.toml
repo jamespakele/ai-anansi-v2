@@ -13,6 +13,21 @@ timeout_s = 300
 [llm.gemini]
 model = "gemini-2.5-pro"
 
+[llm.decomposition]
+temperature = 0.2
+max_tokens  = 32768
+json_mode   = false
+
+[llm.extraction]
+temperature = 0.2
+max_tokens  = 32768
+json_mode   = false
+
+[llm.synthesis]
+temperature = 0.3
+max_tokens  = 65536
+json_mode   = false
+
 # ── Ollama (local, no API key) ────────────────────────────────────────────────
 # Requires Ollama installed on your machine with the model pulled.
 # Switch by replacing the [llm] block above with:
