@@ -15,6 +15,10 @@ pub struct ParsedBlock {
     pub why: Option<String>,
     pub content: Option<String>,
     pub edges: Vec<ParsedEdge>,
+    /// Extracted from the <!-- source_id: ... | vault_match_hint: ... --> comment
+    /// immediately following the block header. When present, used as the DB
+    /// match_key instead of recomputing from the title.
+    pub vault_match_hint: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -166,17 +170,21 @@ fn parse_block(segment: &str) -> Result<ParsedBlock> {
 
     let body_lines = &lines[header_idx + 1..];
 
+    // Extract vault_match_hint from the optional metadata comment immediately
+    // after the block header: <!-- source_id: ... | vault_match_hint: slug -->
+    let vault_match_hint = extract_vault_match_hint(body_lines);
+
     // ── Labeled-section parsing ────────────────────────────────────────────
     // If the block uses explicit ## Lede / ## Why / ## Content / ## Edges
     // headings (at any depth ≥ 2), extract fields by label rather than position.
     let has_lede_heading = body_lines.iter().any(|l| section_contains(l, "Lede"));
 
     if has_lede_heading {
-        return parse_block_labeled(body_lines, header_line, address, title, entity_type);
+        return parse_block_labeled(body_lines, header_line, address, title, entity_type, vault_match_hint);
     }
 
     // ── Legacy positional parsing (backwards compat) ───────────────────────
-    parse_block_positional(body_lines, header_line, address, title, entity_type)
+    parse_block_positional(body_lines, header_line, address, title, entity_type, vault_match_hint)
 }
 
 /// Labeled-section parser: reads ## Lede, ## Why, ## Content, ## Edges at any heading depth.
@@ -186,6 +194,7 @@ fn parse_block_labeled(
     address: String,
     title: String,
     entity_type: String,
+    vault_match_hint: Option<String>,
 ) -> Result<ParsedBlock> {
     let mut lede_lines: Vec<&str> = Vec::new();
     let mut why_lines: Vec<&str> = Vec::new();
@@ -210,6 +219,10 @@ fn parse_block_labeled(
             current = Section::Edges;
             continue;
         }
+        // Skip metadata comment lines — they're informational, not content
+        if line.trim().starts_with("<!--") && line.trim().ends_with("-->") {
+            continue;
+        }
         match current {
             Section::Lede    => lede_lines.push(line),
             Section::Why     => why_lines.push(line),
@@ -232,7 +245,7 @@ fn parse_block_labeled(
 
     let edges = parse_edge_lines(&edge_lines);
 
-    Ok(ParsedBlock { address, title, entity_type, lede, why, content, edges })
+    Ok(ParsedBlock { address, title, entity_type, lede, why, content, edges, vault_match_hint })
 }
 
 /// Legacy positional parser: lede = first line, why = **Why it matters:** line, rest = content.
@@ -242,6 +255,7 @@ fn parse_block_positional(
     address: String,
     title: String,
     entity_type: String,
+    vault_match_hint: Option<String>,
 ) -> Result<ParsedBlock> {
     // Find ### Edges boundary
     let edges_idx = body_lines
@@ -294,7 +308,7 @@ fn parse_block_positional(
 
     let edges = parse_edge_lines(edge_lines);
 
-    Ok(ParsedBlock { address, title, entity_type, lede, why, content, edges })
+    Ok(ParsedBlock { address, title, entity_type, lede, why, content, edges, vault_match_hint })
 }
 
 fn parse_block_header(line: &str) -> Result<(String, String, String)> {
@@ -355,6 +369,32 @@ fn parse_block_header(line: &str) -> Result<(String, String, String)> {
     }
 
     Ok((address, title, entity_type))
+}
+
+/// Extract the vault_match_hint from the metadata comment that follows a block header.
+/// Scans the first few non-empty lines of body_lines for a pattern like:
+///   <!-- source_id: ... | vault_match_hint: entity_type:slug -->
+fn extract_vault_match_hint(body_lines: &[&str]) -> Option<String> {
+    for line in body_lines.iter().take(5) {
+        let t = line.trim();
+        if !t.starts_with("<!--") || !t.ends_with("-->") {
+            if !t.is_empty() {
+                break; // stop at first non-empty, non-comment line
+            }
+            continue;
+        }
+        let inner = t.trim_start_matches("<!--").trim_end_matches("-->").trim();
+        for part in inner.split('|') {
+            let part = part.trim();
+            if let Some(hint) = part.strip_prefix("vault_match_hint:") {
+                let slug = hint.trim().to_string();
+                if !slug.is_empty() {
+                    return Some(slug);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn is_edges_heading(line: &str) -> bool {

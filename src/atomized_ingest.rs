@@ -282,9 +282,13 @@ async fn process_block(
     report: &mut IngestAtomizedReport,
 ) -> Result<String> {
     let base_mk = db::match_key(&block.title, &block.entity_type);
+    // Prefer vault_match_hint when the LLM provided one \u2014 it's the slug
+    // used in ## Edges cross-references throughout the file, so we must
+    // store the note under that exact key for edge resolution to work.
+    let hint_mk = block.vault_match_hint.as_deref().unwrap_or(&base_mk);
     let note_mk = match section_num(&block.address) {
-        Some(3) => format!("{base_mk}:{variant}"),
-        _ => base_mk,
+        Some(3) => format!("{hint_mk}:{variant}"),
+        _ => hint_mk.to_string(),
     };
 
     let existing = find_note_by_match_key(pool, &note_mk).await?;
