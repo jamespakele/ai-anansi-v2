@@ -236,6 +236,25 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                     }
                 },
                 {
+                    "name": "anansi_ingest_file",
+                    "description": "Drop a raw document into the inbox pipeline (q-inbox/). The server runs the full skill pipeline: para-projects-areas + para-resource-entities in parallel, then sb-atomize, then ingest into the knowledge base. Use this when you have a source document (meeting notes, book chapter, article, etc.) that needs full LLM processing. For already-atomized content use anansi_ingest_atomized instead.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "content": {
+                                "type": "string",
+                                "description": "The raw document text to process."
+                            },
+                            "filename": {
+                                "type": "string",
+                                "description": "Optional filename for the queued file (e.g. 'smart-brevity-chapter-3.md'). If omitted a slug+timestamp name is generated automatically."
+                            },
+                            "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." }
+                        },
+                        "required": ["content"]
+                    }
+                },
+                {
                     "name": "anansi_capture",
                     "description": "Quick-capture a single note (person, event, organization, topic, etc.) without atomization. Upserts by match_key — safe to call multiple times for the same entity.",
                     "inputSchema": {
@@ -344,6 +363,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_edges" => tool_edges(state, id, args).await,
         "anansi_relate" => tool_relate(state, id, args).await,
         "anansi_ingest_atomized" => tool_ingest_atomized(state, id, args).await,
+        "anansi_ingest_file"     => tool_ingest_file(state, id, args).await,
         "anansi_capture" => tool_capture(state, id, args).await,
         "anansi_purge" => tool_purge(state, id, args).await,
         "anansi_embed" => tool_embed(state, id, args).await,
@@ -721,6 +741,65 @@ async fn tool_relate(state: McpState, id: Value, args: Value) -> Json<Value> {
         ),
         Err(e) => json_rpc_err(id, -32000, &format!("Failed to insert edge: {e}")),
     }
+}
+
+// ---------------------------------------------------------------------------
+// anansi_ingest_file
+// ---------------------------------------------------------------------------
+
+async fn tool_ingest_file(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+
+    if let Some(err) = check_skill_source(&id, &args) { return err; }
+
+    if ctx.config.server.read_only {
+        return json_rpc_err(id, -32000, "this anansi instance is read-only");
+    }
+
+    let content = match args.get("content").and_then(|v| v.as_str()) {
+        Some(c) => c.to_string(),
+        None    => return json_rpc_err(id, -32602, "Missing required argument: content"),
+    };
+
+    // Use provided filename or generate capture-{YYYYMMDD-HHmmss}.md
+    let filename = match args.get("filename").and_then(|v| v.as_str()) {
+        Some(f) => {
+            // Safety: reject path traversal
+            if f.contains('/') || f.contains('\\') || f.contains("..") {
+                return json_rpc_err(id, -32602, "filename must not contain path separators or '..'");
+            }
+            f.to_string()
+        }
+        None => {
+            let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+            format!("capture-{ts}.md")
+        }
+    };
+
+    let inbox_dir = &ctx.config.inbox.watch_dir;
+    let dest = std::path::Path::new(inbox_dir).join(&filename);
+
+    if let Err(e) = tokio::fs::create_dir_all(inbox_dir).await {
+        return json_rpc_err(id, -32000, &format!("Cannot create inbox dir: {e}"));
+    }
+    if let Err(e) = tokio::fs::write(&dest, &content).await {
+        return json_rpc_err(id, -32000, &format!("Failed to write to inbox: {e}"));
+    }
+
+    json_rpc_ok(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({
+                    "status": "queued",
+                    "queue_file": filename,
+                    "queue_dir": inbox_dir,
+                    "message": "Document queued for full pipeline processing (para-process → sb-atomize → ingest). Use anansi_filter or anansi_search to verify results after processing."
+                })).unwrap_or_default()
+            }]
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
