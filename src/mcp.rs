@@ -149,12 +149,13 @@ fn handle_tools_list(id: Value) -> Json<Value> {
             "tools": [
                 {
                     "name": "anansi_search",
-                    "description": "Full-text search across note name, lede, why, and content using PostgreSQL tsvector. Supports plain-text queries. Use for keyword and concept lookups.",
+                    "description": "Full-text search across note name, lede, why, and content using PostgreSQL tsvector. Supports plain-text queries. Use for keyword and concept lookups. Archived notes (entity_type starting with 'archive-') are excluded by default.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
                             "query": { "type": "string", "description": "Search query. Plain terms or phrases." },
-                            "limit": { "type": "integer", "description": "Max results (default 20)." }
+                            "limit": { "type": "integer", "description": "Max results (default 20)." },
+                            "include_archived": { "type": "boolean", "description": "If true, include archived notes in results. Default false." }
                         },
                         "required": ["query"]
                     }
@@ -172,14 +173,15 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                 },
                 {
                     "name": "anansi_filter",
-                    "description": "Filter notes by entity_type and/or date range. All parameters optional. Use to list all notes of a type, or all notes updated in a time window.",
+                    "description": "Filter notes by entity_type and/or date range. All parameters optional. Archived notes (entity_type starting with 'archive-') are excluded by default when no entity_type is specified. Use entity_type='archive-discussion' to retrieve archived notes of a specific type.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
-                            "entity_type": { "type": "string", "description": "Filter by type, e.g. person, organization, project, event, topic, note." },
+                            "entity_type": { "type": "string", "description": "Filter by type, e.g. person, organization, project, event, topic, note. Use 'archive-<type>' to retrieve archived notes." },
                             "after": { "type": "string", "description": "ISO 8601 datetime — return notes updated at or after this timestamp." },
                             "before": { "type": "string", "description": "ISO 8601 datetime — return notes updated at or before this timestamp." },
-                            "limit": { "type": "integer", "description": "Max results (default 50)." }
+                            "limit": { "type": "integer", "description": "Max results (default 50)." },
+                            "include_archived": { "type": "boolean", "description": "If true, include archived notes when no entity_type filter is set. Default false." }
                         }
                     }
                 },
@@ -491,7 +493,12 @@ async fn tool_search(state: McpState, id: Value, args: Value) -> Json<Value> {
         .unwrap_or(20)
         .clamp(1, 1000);
 
-    match db::search_notes(&state.ctx.db, &query, limit).await {
+    let include_archived = args
+        .get("include_archived")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    match db::search_notes(&state.ctx.db, &query, limit, include_archived).await {
         Ok(notes) => {
             let items: Vec<Value> = notes
                 .into_iter()
@@ -533,7 +540,12 @@ async fn tool_filter(state: McpState, id: Value, args: Value) -> Json<Value> {
         .unwrap_or(50)
         .clamp(1, 1000);
 
-    match db::filter_notes(&state.ctx.db, entity_type, after, before, limit).await {
+    let include_archived = args
+        .get("include_archived")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    match db::filter_notes(&state.ctx.db, entity_type, after, before, limit, include_archived).await {
         Ok(notes) => {
             let items: Vec<Value> = notes
                 .into_iter()

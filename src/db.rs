@@ -291,14 +291,22 @@ pub async fn edges_for_note(pool: &DbPool, note_id: &str) -> Result<Vec<EdgeReco
         .collect())
 }
 
-pub async fn search_notes(pool: &DbPool, query: &str, limit: i64) -> Result<Vec<NoteRecord>> {
+pub async fn search_notes(pool: &DbPool, query: &str, limit: i64, include_archived: bool) -> Result<Vec<NoteRecord>> {
     // Use PostgreSQL tsvector full-text search across name, lede, why, and content.
     // The fts_vector column is a GENERATED ALWAYS AS STORED tsvector column.
+    let archive_clause = if include_archived {
+        ""
+    } else {
+        "AND entity_type NOT LIKE 'archive-%'"
+    };
     let rows = sqlx::query(
-        "SELECT * FROM notes \
-         WHERE fts_vector @@ plainto_tsquery('english', $1) \
-         ORDER BY ts_rank(fts_vector, plainto_tsquery('english', $1)) DESC \
-         LIMIT $2",
+        &format!(
+            "SELECT * FROM notes \
+             WHERE fts_vector @@ plainto_tsquery('english', $1) \
+             {archive_clause} \
+             ORDER BY ts_rank(fts_vector, plainto_tsquery('english', $1)) DESC \
+             LIMIT $2"
+        )
     )
     .bind(query)
     .bind(limit)
@@ -310,12 +318,15 @@ pub async fn search_notes(pool: &DbPool, query: &str, limit: i64) -> Result<Vec<
 
 /// Filter notes by optional entity_type and/or date range (ISO 8601 strings).
 /// All parameters are optional — omit to get all notes ordered by recency.
+/// When no entity_type is provided and include_archived is false (default),
+/// notes with entity_type starting with 'archive-' are excluded.
 pub async fn filter_notes(
     pool: &DbPool,
     entity_type: Option<&str>,
     after: Option<&str>,
     before: Option<&str>,
     limit: i64,
+    include_archived: bool,
 ) -> Result<Vec<NoteRecord>> {
     // Build dynamic WHERE clause with PostgreSQL $N positional parameters
     let mut conditions: Vec<String> = Vec::new();
@@ -324,6 +335,9 @@ pub async fn filter_notes(
     if entity_type.is_some() {
         conditions.push(format!("entity_type = ${param_idx}"));
         param_idx += 1;
+    } else if !include_archived {
+        // No explicit entity_type filter — exclude archived records by default
+        conditions.push("entity_type NOT LIKE 'archive-%'".to_string());
     }
     if after.is_some() {
         conditions.push(format!("updated_at >= ${param_idx}"));
