@@ -347,12 +347,13 @@ impl LlmClient for OpenRouterClient {
 
 pub struct CodexCliClient {
     cli_path: String,
+    script_arg: Option<String>,
     timeout: Duration,
 }
 
 impl CodexCliClient {
-    pub fn new(cli_path: String, timeout_s: u64) -> Self {
-        Self { cli_path, timeout: Duration::from_secs(timeout_s) }
+    pub fn new(cli_path: String, script_arg: Option<String>, timeout_s: u64) -> Self {
+        Self { cli_path, script_arg, timeout: Duration::from_secs(timeout_s) }
     }
 }
 
@@ -362,7 +363,12 @@ impl LlmClient for CodexCliClient {
         use tokio::process::Command;
         use std::process::Stdio;
 
-        let mut child = Command::new(&self.cli_path)
+        let mut cmd = Command::new(&self.cli_path);
+        // If invoked as `node /path/to/codex.js`, prepend the script path
+        if let Some(script) = &self.script_arg {
+            cmd.arg(script);
+        }
+        let mut child = cmd
             .arg("-q")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -395,7 +401,11 @@ impl LlmClient for CodexCliClient {
 
     async fn ping(&self) -> Result<()> {
         use tokio::process::Command;
-        let output = Command::new(&self.cli_path)
+        let mut cmd = Command::new(&self.cli_path);
+        if let Some(script) = &self.script_arg {
+            cmd.arg(script);
+        }
+        let output = cmd
             .arg("--version")
             .output()
             .await
@@ -501,10 +511,16 @@ pub fn build_client_for_backend(backend: &str, config: &LlmConfig) -> Result<Box
         "codex" => {
             // OpenAI Codex CLI — device-auth, no API key required.
             // Token stored in ~/.codex/ after running `codex auth login`.
-            let cli_candidate = std::env::var("ANANSI_CODEX_CLI_PATH")
+            //
+            // To invoke via node directly (e.g. in Docker):
+            //   ANANSI_CODEX_CLI_PATH=/usr/bin/node
+            //   ANANSI_CODEX_CLI_ARGS=/usr/lib/node_modules/@openai/codex/bin/codex.js
+            let cli_path = std::env::var("ANANSI_CODEX_CLI_PATH")
                 .unwrap_or_else(|_| "codex".to_string());
+            let script_arg = std::env::var("ANANSI_CODEX_CLI_ARGS").ok();
             Ok(Box::new(CodexCliClient::new(
-                cli_candidate,
+                cli_path,
+                script_arg,
                 config.timeout_s,
             )))
         }

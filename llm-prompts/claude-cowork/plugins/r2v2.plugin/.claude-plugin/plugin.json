@@ -1,0 +1,23 @@
+{
+  "name": "r2v2",
+  "version": "0.2.0",
+  "description": "R2 v2 — James Pakele's operating intelligence layer built on the Anansi + TickTick foundation. Skills: r2 (orchestrator + signal routing), inbox-triage (action item classification → TickTick), task-report (daily task report from live TickTick state), yt-ingest (YouTube transcript → r2-remember), url-ingest (article extraction → r2-remember). Pairs with r2-anansi for the full PARA atomization pipeline.",
+  "author": {
+    "name": "Pakele.ai",
+    "email": "james@pakele.ai"
+  },
+  "homepage": "https://github.com/jamespakele/ai-anansi-v2",
+  "license": "MIT",
+  "keywords": [
+    "r2",
+    "orchestrator",
+    "ticktick",
+    "triage",
+    "task-report",
+    "yt-ingest",
+    "url-ingest",
+    "intake",
+    "zero-null",
+    "pakele-os"
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "name": "r2-anansi",
-  "version": "0.5.2",
-  "description": "PARA atomization pipeline for anansi. Skills: para-process, para-projects-areas, para-resource-entities, sb-atomize, r2-remember, anansi-atom, anansi-purge, anansi-ingest-file. Pairs with the standalone smart-brevity skill (installed separately) for single-document compression.",
+  "version": "0.7.1",
+  "description": "PARA atomization pipeline for Anansi. Skills: para-process, para-projects-areas, para-resource-entities, sb-atomize, r2-remember, anansi-atom, anansi-purge, anansi-ingest-file, anansi-recompose. Pairs with the standalone smart-brevity skill for single-document compression.",
   "author": {
     "name": "Pakele.ai",
     "email": "james@pakele.ai"
@@ -14,6 +14,8 @@
     "atomization",
     "knowledge-vault",
     "para-process",
-    "pipeline"
+    "pipeline",
+    "atomize",
+    "recompose"
   ]
 }
