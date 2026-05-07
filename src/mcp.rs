@@ -285,6 +285,18 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                     }
                 },
                 {
+                    "name": "anansi_delete_note",
+                    "description": "Delete a single note by its id. Also removes all edges connected to that note (both directions) and its source_contribution records. Embeddings are removed automatically via cascade. Use anansi_get or anansi_search to find the note id first.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "note_id": { "type": "string", "description": "ID of the note to delete." },
+                            "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." }
+                        },
+                        "required": ["note_id"]
+                    }
+                },
+                {
                     "name": "anansi_embed",
                     "description": "Generate and store Gemini text-embedding-004 embeddings for notes. Pass note_id for a single note, or batch:true to embed up to 100 notes that don't yet have embeddings.",
                     "inputSchema": {
@@ -382,6 +394,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_ingest_file"     => tool_ingest_file(state, id, args).await,
         "anansi_capture" => tool_capture(state, id, args).await,
         "anansi_purge" => tool_purge(state, id, args).await,
+        "anansi_delete_note" => tool_delete_note(state, id, args).await,
         "anansi_embed" => tool_embed(state, id, args).await,
         "anansi_search_semantic" => tool_search_semantic(state, id, args).await,
         "anansi_export_context" => tool_export_context(state, id, args).await,
@@ -1024,6 +1037,71 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
             }]
         }),
     )
+}
+// ---------------------------------------------------------------------------
+// anansi_delete_note
+// ---------------------------------------------------------------------------
+
+async fn tool_delete_note(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+
+    if let Some(err) = check_skill_source(&id, &args) { return err; }
+
+    if ctx.config.server.read_only {
+        return json_rpc_err(id, -32000, "this anansi instance is read-only");
+    }
+
+    let note_id = match args.get("note_id").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => return json_rpc_err(id, -32602, "Missing required argument: note_id"),
+    };
+
+    // Verify the note exists first
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM notes WHERE id = $1)")
+        .bind(&note_id)
+        .fetch_one(&ctx.db)
+        .await
+        .unwrap_or(false);
+
+    if !exists {
+        return json_rpc_err(id, -32000, &format!("Note not found: {note_id}"));
+    }
+
+    // Delete edges connected to this note (both directions) — no FK cascade on edges
+    let r1 = sqlx::query("DELETE FROM edges WHERE source_note_id = $1")
+        .bind(&note_id).execute(&ctx.db).await;
+    let r2 = sqlx::query("DELETE FROM edges WHERE target_note_id = $1")
+        .bind(&note_id).execute(&ctx.db).await;
+    let edges_deleted = r1.map(|r| r.rows_affected()).unwrap_or(0)
+        + r2.map(|r| r.rows_affected()).unwrap_or(0);
+
+    // Delete source contributions — no FK cascade
+    let contribs_deleted =
+        sqlx::query("DELETE FROM source_contributions WHERE note_id = $1")
+            .bind(&note_id)
+            .execute(&ctx.db)
+            .await
+            .map(|r| r.rows_affected())
+            .unwrap_or(0);
+
+    // Delete the note itself — embeddings cascade automatically
+    let deleted = sqlx::query("DELETE FROM notes WHERE id = $1")
+        .bind(&note_id)
+        .execute(&ctx.db)
+        .await
+        .map(|r| r.rows_affected())
+        .unwrap_or(0);
+
+    if deleted == 0 {
+        return json_rpc_err(id, -32000, &format!("Failed to delete note: {note_id}"));
+    }
+
+    json_rpc_ok(id, serde_json::json!({
+        "status": "deleted",
+        "note_id": note_id,
+        "edges_deleted": edges_deleted,
+        "contributions_deleted": contribs_deleted,
+    }))
 }
 
 // ---------------------------------------------------------------------------
