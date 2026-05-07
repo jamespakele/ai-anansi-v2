@@ -297,6 +297,19 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                     }
                 },
                 {
+                    "name": "anansi_archive_note",
+                    "description": "Soft-archive a note by prefixing its entity_type with 'archive-' (e.g. 'discussion' → 'archive-discussion'). Non-destructive — edges, embeddings, and content are preserved. Pass restore:true to reverse. Archived notes are excluded from normal searches but can be found with anansi_filter using entity_type='archive-<type>'.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "note_id": { "type": "string", "description": "ID of the note to archive or restore." },
+                            "restore": { "type": "boolean", "description": "If true, remove the 'archive-' prefix to restore the note. Default false." },
+                            "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." }
+                        },
+                        "required": ["note_id"]
+                    }
+                },
+                {
                     "name": "anansi_embed",
                     "description": "Generate and store Gemini text-embedding-004 embeddings for notes. Pass note_id for a single note, or batch:true to embed up to 100 notes that don't yet have embeddings.",
                     "inputSchema": {
@@ -395,6 +408,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_capture" => tool_capture(state, id, args).await,
         "anansi_purge" => tool_purge(state, id, args).await,
         "anansi_delete_note" => tool_delete_note(state, id, args).await,
+        "anansi_archive_note" => tool_archive_note(state, id, args).await,
         "anansi_embed" => tool_embed(state, id, args).await,
         "anansi_search_semantic" => tool_search_semantic(state, id, args).await,
         "anansi_export_context" => tool_export_context(state, id, args).await,
@@ -1101,6 +1115,64 @@ async fn tool_delete_note(state: McpState, id: Value, args: Value) -> Json<Value
         "note_id": note_id,
         "edges_deleted": edges_deleted,
         "contributions_deleted": contribs_deleted,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// anansi_archive_note
+// ---------------------------------------------------------------------------
+
+async fn tool_archive_note(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+
+    if let Some(err) = check_skill_source(&id, &args) { return err; }
+
+    if ctx.config.server.read_only {
+        return json_rpc_err(id, -32000, "this anansi instance is read-only");
+    }
+
+    let note_id = match args.get("note_id").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => return json_rpc_err(id, -32602, "Missing required argument: note_id"),
+    };
+    let restore = args.get("restore").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    // Fetch current entity_type
+    let current_type: Option<String> =
+        sqlx::query_scalar("SELECT entity_type FROM notes WHERE id = $1")
+            .bind(&note_id)
+            .fetch_optional(&ctx.db)
+            .await
+            .unwrap_or(None);
+
+    let current_type = match current_type {
+        Some(t) => t,
+        None => return json_rpc_err(id, -32000, &format!("Note not found: {note_id}")),
+    };
+
+    let new_type = if restore {
+        // Strip leading "archive-" prefix(es)
+        current_type.trim_start_matches("archive-").to_string()
+    } else {
+        if current_type.starts_with("archive-") {
+            return json_rpc_err(id, -32000, "Note is already archived. Pass restore:true to unarchive.");
+        }
+        format!("archive-{current_type}")
+    };
+
+    sqlx::query("UPDATE notes SET entity_type = $1, updated_at = NOW() WHERE id = $2")
+        .bind(&new_type)
+        .bind(&note_id)
+        .execute(&ctx.db)
+        .await
+        .map_err(|e| e.to_string())
+        .ok();
+
+    let action = if restore { "restored" } else { "archived" };
+    json_rpc_ok(id, serde_json::json!({
+        "status": action,
+        "note_id": note_id,
+        "entity_type": new_type,
     }))
 }
 
