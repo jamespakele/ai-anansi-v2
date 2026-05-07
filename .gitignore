@@ -32,4 +32,5 @@ error-report*.md
 /.opencode
 /_bmad
 data/
-*.Zone.Identifier
+*Zone.Identifier*
+*:Zone*
