@@ -1122,11 +1122,16 @@ async fn tool_delete_note(state: McpState, id: Value, args: Value) -> Json<Value
         return json_rpc_err(id, -32000, &format!("Failed to delete note: {note_id}"));
     }
 
-    json_rpc_ok(id, serde_json::json!({
-        "status": "deleted",
-        "note_id": note_id,
-        "edges_deleted": edges_deleted,
-        "contributions_deleted": contribs_deleted,
+    json_rpc_ok(id, json!({
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string(&json!({
+                "status": "deleted",
+                "note_id": note_id,
+                "edges_deleted": edges_deleted,
+                "contributions_deleted": contribs_deleted,
+            })).unwrap_or_default()
+        }]
     }))
 }
 
@@ -1181,10 +1186,15 @@ async fn tool_archive_note(state: McpState, id: Value, args: Value) -> Json<Valu
         .ok();
 
     let action = if restore { "restored" } else { "archived" };
-    json_rpc_ok(id, serde_json::json!({
-        "status": action,
-        "note_id": note_id,
-        "entity_type": new_type,
+    json_rpc_ok(id, json!({
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string(&json!({
+                "status": action,
+                "note_id": note_id,
+                "entity_type": new_type,
+            })).unwrap_or_default()
+        }]
     }))
 }
 
