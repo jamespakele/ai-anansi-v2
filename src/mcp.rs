@@ -275,6 +275,23 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                     }
                 },
                 {
+                    "name": "anansi_update_note",
+                    "description": "Patch an existing note by its UUID. Only the fields you provide are updated — omitted fields are left unchanged. If name or entity_type change, the match_key is regenerated in place on the same row: no duplicate is created, all edges and embeddings remain attached. Use anansi_get or anansi_search to find the note id first.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "note_id": { "type": "string", "description": "UUID of the note to update." },
+                            "name": { "type": "string", "description": "New display name. Triggers match_key regeneration if changed." },
+                            "entity_type": { "type": "string", "description": "New entity type. Triggers match_key regeneration if changed." },
+                            "lede": { "type": "string", "description": "Replace the lede." },
+                            "why": { "type": "string", "description": "Replace the why field." },
+                            "content": { "type": "string", "description": "Replace the content field." },
+                            "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." }
+                        },
+                        "required": ["note_id"]
+                    }
+                },
+                {
                     "name": "anansi_purge",
                     "description": "Delete all notes, edges, and contributions from a specific import by source_id. Removes the source record too. Use anansi_search or anansi_filter to find source_ids.",
                     "inputSchema": {
@@ -408,6 +425,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_ingest_atomized" => tool_ingest_atomized(state, id, args).await,
         "anansi_ingest_file"     => tool_ingest_file(state, id, args).await,
         "anansi_capture" => tool_capture(state, id, args).await,
+        "anansi_update_note" => tool_update_note(state, id, args).await,
         "anansi_purge" => tool_purge(state, id, args).await,
         "anansi_delete_note" => tool_delete_note(state, id, args).await,
         "anansi_archive_note" => tool_archive_note(state, id, args).await,
@@ -953,6 +971,108 @@ async fn tool_ingest_atomized(state: McpState, id: Value, args: Value) -> Json<V
             }]
         }),
     )
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// anansi_update_note
+// ---------------------------------------------------------------------------
+
+async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+
+    if let Some(err) = check_skill_source(&id, &args) { return err; }
+
+    if ctx.config.server.read_only {
+        return json_rpc_err(id, -32000, "this anansi instance is read-only");
+    }
+
+    let note_id = match args.get("note_id").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => return json_rpc_err(id, -32602, "Missing required argument: note_id"),
+    };
+
+    // Fetch current entity_type and name so we can fall back to them if not patched
+    let current_entity_type: Option<String> =
+        sqlx::query_scalar("SELECT entity_type FROM notes WHERE id = $1")
+            .bind(&note_id)
+            .fetch_optional(&ctx.db)
+            .await
+            .unwrap_or(None);
+
+    let current_entity_type = match current_entity_type {
+        Some(t) => t,
+        None => return json_rpc_err(id, -32000, &format!("Note not found: {note_id}")),
+    };
+
+    let current_name: String =
+        sqlx::query_scalar("SELECT name FROM notes WHERE id = $1")
+            .bind(&note_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap_or_default();
+
+
+    // Resolve new values — fall back to current if not provided
+    let new_entity_type = args.get("entity_type").and_then(|v| v.as_str())
+        .unwrap_or(&current_entity_type);
+    let new_name = args.get("name").and_then(|v| v.as_str())
+        .unwrap_or(&current_name);
+
+    // Regenerate match_key if name or entity_type changed
+    let new_match_key = db::match_key(new_name, new_entity_type);
+
+    // Build dynamic SET clause — only update fields that were provided
+    let mut sets: Vec<String> = vec![
+        "entity_type = $2".to_string(),
+        "name = $3".to_string(),
+        "match_key = $4".to_string(),
+        "updated_at = NOW()".to_string(),
+    ];
+    let mut param_idx: i32 = 5;
+
+    let lede   = args.get("lede").and_then(|v| v.as_str());
+    let why    = args.get("why").and_then(|v| v.as_str());
+    let content = args.get("content").and_then(|v| v.as_str());
+
+    if lede.is_some()    { sets.push(format!("lede = ${param_idx}"));    param_idx += 1; }
+    if why.is_some()     { sets.push(format!("why = ${param_idx}"));     param_idx += 1; }
+    if content.is_some() { sets.push(format!("content = ${param_idx}")); param_idx += 1; }
+
+    let sql = format!(
+        "UPDATE notes SET {} WHERE id = $1",
+        sets.join(", ")
+    );
+
+    let mut q = sqlx::query(&sql)
+        .bind(&note_id)
+        .bind(new_entity_type)
+        .bind(new_name)
+        .bind(&new_match_key);
+
+    if let Some(v) = lede    { q = q.bind(v); }
+    if let Some(v) = why     { q = q.bind(v); }
+    if let Some(v) = content { q = q.bind(v); }
+
+    match q.execute(&ctx.db).await {
+        Err(e) => return json_rpc_err(id, -32000, &format!("Update failed: {e}")),
+        Ok(r) if r.rows_affected() == 0 =>
+            return json_rpc_err(id, -32000, "Update matched 0 rows"),
+        Ok(_) => {}
+    }
+
+    json_rpc_ok(id, json!({
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string(&json!({
+                "status": "updated",
+                "note_id": note_id,
+                "match_key": new_match_key,
+                "entity_type": new_entity_type,
+                "name": new_name,
+            })).unwrap_or_default()
+        }]
+    }))
 }
 
 // ---------------------------------------------------------------------------
