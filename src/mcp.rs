@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
-    extract::{Multipart, State},
-    http::StatusCode,
-    response::IntoResponse,
+    body::Body,
+    extract::{Multipart, Request, State},
+    http::{HeaderMap, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -25,6 +27,8 @@ use crate::pipeline::{ingest, IngestContext};
 #[derive(Clone)]
 pub struct McpState {
     pub ctx: Arc<IngestContext>,
+    /// When Some, every request must carry this key.
+    pub api_key: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -86,17 +90,74 @@ fn check_skill_source(id: &Value, args: &Value) -> Option<Json<Value>> {
 }
 
 // ---------------------------------------------------------------------------
+// API-key auth middleware
+// ---------------------------------------------------------------------------
+
+/// Extract the API key presented by the caller.
+/// Accepts:
+///   - `Authorization: Bearer <key>` header
+///   - `?api_key=<key>` query parameter
+fn extract_provided_key(headers: &HeaderMap, query: Option<&str>) -> Option<String> {
+    // 1. Authorization: Bearer <key>
+    if let Some(auth) = headers.get("authorization") {
+        if let Ok(val) = auth.to_str() {
+            if let Some(token) = val.strip_prefix("Bearer ") {
+                return Some(token.trim().to_string());
+            }
+        }
+    }
+    // 2. ?api_key=<key>
+    if let Some(qs) = query {
+        for pair in qs.split('&') {
+            if let Some(v) = pair.strip_prefix("api_key=") {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
+
+async fn auth_middleware(
+    State(state): State<McpState>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    // Only enforce when an API key is configured
+    if let Some(expected) = &state.api_key {
+        let query = req.uri().query().map(|q| q.to_string());
+        let provided = extract_provided_key(req.headers(), query.as_deref());
+        if provided.as_deref() != Some(expected.as_str()) {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": "invalid or missing API key" })),
+            )
+                .into_response();
+        }
+    }
+    next.run(req).await
+}
+
+// ---------------------------------------------------------------------------
 // Router / serve
 // ---------------------------------------------------------------------------
 
 pub fn router(ctx: Arc<IngestContext>) -> Router {
-    Router::new()
+    let api_key = ctx.config.server.api_key.clone();
+    let state = McpState { ctx, api_key };
+
+    // Routes that require auth (everything except /health)
+    let protected = Router::new()
         .route("/", post(handle_json_rpc))
-        .route("/health", get(handle_health))
         .route("/exports/{filename}", get(handle_export_download))
         .route("/upload/inbox",   post(handle_upload_inbox))
         .route("/upload/atomize", post(handle_upload_atomize))
-        .with_state(McpState { ctx })
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .with_state(state.clone());
+
+    Router::new()
+        .merge(protected)
+        .route("/health", get(handle_health))
+        .with_state(state)
 }
 
 pub async fn serve(ctx: Arc<IngestContext>, host: &str, port: u16) -> Result<()> {
@@ -1450,7 +1511,8 @@ async fn handle_health(State(state): State<McpState>) -> impl IntoResponse {
         "status": status,
         "llm": llm_status,
         "db": db_status,
-        "version": "0.1.0",
+        "version": env!("CARGO_PKG_VERSION"),
+        "commit": env!("GIT_SHA"),
     });
 
     let status_code = if status == "ok" {
