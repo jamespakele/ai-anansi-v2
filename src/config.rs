@@ -223,6 +223,10 @@ pub struct ServerConfig {
     pub read_only: bool,
     /// Public base URL used to generate export download links, e.g. "https://vps.pakele.ai"
     pub public_url: Option<String>,
+    /// Optional API key that must be presented on every MCP request.
+    /// Accepted as `Authorization: Bearer <key>` header or `?api_key=<key>` query param.
+    /// Override at runtime with the `ANANSI_API_KEY` environment variable.
+    pub api_key: Option<String>,
 }
 
 fn default_mcp_port() -> u16 { 3738 }
@@ -235,6 +239,7 @@ impl Default for ServerConfig {
             host: default_host(),
             read_only: false,
             public_url: None,
+            api_key: None,
         }
     }
 }
@@ -276,6 +281,9 @@ impl Config {
         }
         if let Ok(url) = std::env::var("ANANSI_PUBLIC_URL") {
             config.server.public_url = Some(url);
+        }
+        if let Ok(key) = std::env::var("ANANSI_API_KEY") {
+            config.server.api_key = Some(key);
         }
         if let Ok(url) = std::env::var("DATABASE_URL") {
             config.database_url = url;

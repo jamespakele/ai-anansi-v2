@@ -2,10 +2,12 @@ use anyhow::{anyhow, Result};
 use crate::rules::RuleRegistry;
 use crate::template::TemplateRegistry;
 
-static PASS1_TEMPLATE: &str = include_str!("../prompts/pass-1-toc-extraction.md");
-static PASS3_TEMPLATE: &str = include_str!("../prompts/pass-3-node-expansion.md");
-static PASS4_TEMPLATE: &str = include_str!("../prompts/pass-4-relationship-extraction.md");
-static PASS3_BATCH_TEMPLATE: &str = include_str!("../prompts/pass-3-batch.md");
+// NOTE: The old prompts/ directory was removed — these pipelines are superseded
+// by the claude-cowork llm-prompts approach. Stubs kept so pipeline.rs compiles.
+static PASS1_TEMPLATE: &str = "";
+static PASS3_TEMPLATE: &str = "";
+static PASS4_TEMPLATE: &str = "";
+static PASS3_BATCH_TEMPLATE: &str = "";
 
 const RELATIONSHIP_TYPES: &[&str] = &[
     "member_of", "belongs_to", "contains", "related_to", "discusses", "involves",
