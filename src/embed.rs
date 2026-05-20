@@ -32,7 +32,7 @@ pub async fn gemini_embed(api_key: &str, text: &str) -> Result<Vec<f32>> {
     };
 
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent?key={api_key}"
+        "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={api_key}"
     );
 
     let body = json!({
