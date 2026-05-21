@@ -291,9 +291,28 @@ pub async fn edges_for_note(pool: &DbPool, note_id: &str) -> Result<Vec<EdgeReco
         .collect())
 }
 
-pub async fn search_notes(pool: &DbPool, query: &str, limit: i64, include_archived: bool) -> Result<Vec<NoteRecord>> {
+pub async fn search_notes(pool: &DbPool, query: &str, limit: i64, include_archived: bool, use_or: bool) -> Result<Vec<NoteRecord>> {
     // Use PostgreSQL tsvector full-text search across name, lede, why, and content.
     // The fts_vector column is a GENERATED ALWAYS AS STORED tsvector column.
+    //
+    // Preprocess query: split into tokens, strip non-alphanumeric chars, join
+    // with | (OR) or & (AND).  Uses to_tsquery instead of plainto_tsquery so
+    // we control the operator between terms.  Default is OR — matching any
+    // term — which is the expected search-engine behaviour for users.
+    let separator = if use_or { " | " } else { " & " };
+    let sanitized: String = query
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect();
+    let processed_query: String = sanitized
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(separator);
+
+    if processed_query.is_empty() {
+        return Ok(vec![]);
+    }
+
     let archive_clause = if include_archived {
         ""
     } else {
@@ -302,13 +321,13 @@ pub async fn search_notes(pool: &DbPool, query: &str, limit: i64, include_archiv
     let rows = sqlx::query(
         &format!(
             "SELECT * FROM notes \
-             WHERE fts_vector @@ plainto_tsquery('english', $1) \
+             WHERE fts_vector @@ to_tsquery('english', $1) \
              {archive_clause} \
-             ORDER BY ts_rank(fts_vector, plainto_tsquery('english', $1)) DESC \
+             ORDER BY ts_rank(fts_vector, to_tsquery('english', $1)) DESC \
              LIMIT $2"
         )
     )
-    .bind(query)
+    .bind(&processed_query)
     .bind(limit)
     .fetch_all(pool)
     .await?;

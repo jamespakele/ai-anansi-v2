@@ -210,12 +210,13 @@ fn handle_tools_list(id: Value) -> Json<Value> {
             "tools": [
                 {
                     "name": "anansi_search",
-                    "description": "Full-text search across note name, lede, why, and content using PostgreSQL tsvector. Supports plain-text queries. Use for keyword and concept lookups. Archived notes (entity_type starting with 'archive-') are excluded by default.",
+                    "description": "Full-text search across note name, lede, why, and content using PostgreSQL tsvector. Multi-term queries default to OR — any matching term returns the note. Pass operator 'and' to require all terms. Archived notes (entity_type starting with 'archive-') are excluded by default.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
-                            "query": { "type": "string", "description": "Search query. Plain terms or phrases." },
+                            "query": { "type": "string", "description": "Search query. Space-separated terms are joined with OR by default (any term matches). Use the operator param to switch to AND (all terms must match)." },
                             "limit": { "type": "integer", "description": "Max results (default 20)." },
+                            "operator": { "type": "string", "enum": ["or", "and"], "description": "How to combine multiple search terms. 'or' (default) matches notes containing any term. 'and' requires all terms." },
                             "include_archived": { "type": "boolean", "description": "If true, include archived notes in results. Default false." }
                         },
                         "required": ["query"]
@@ -577,7 +578,13 @@ async fn tool_search(state: McpState, id: Value, args: Value) -> Json<Value> {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    match db::search_notes(&state.ctx.db, &query, limit, include_archived).await {
+    let use_or = args
+        .get("operator")
+        .and_then(|v| v.as_str())
+        .unwrap_or("or")
+        != "and";
+
+    match db::search_notes(&state.ctx.db, &query, limit, include_archived, use_or).await {
         Ok(notes) => {
             let items: Vec<Value> = notes
                 .into_iter()
