@@ -7,12 +7,15 @@ RUN rustup target add x86_64-unknown-linux-musl
 WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
+COPY build.rs ./build.rs
 COPY src ./src
 COPY migrations ./migrations
 COPY templates ./templates
 COPY %Rules ./%Rules
-COPY prompts ./prompts
 COPY anansi.toml.example ./anansi.toml.example
+# build.rs reads git SHA — copy just enough of .git for rev-parse
+COPY .git/HEAD .git/HEAD
+COPY .git/refs .git/refs
 
 RUN cargo build --release --target x86_64-unknown-linux-musl
 
