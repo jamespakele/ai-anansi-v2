@@ -39,6 +39,7 @@ services:
     environment:
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
       - ANANSI_SKILL_TOKEN=${ANANSI_SKILL_TOKEN:-}
+      - ANANSI_OPENROUTER_API_KEY=${ANANSI_OPENROUTER_API_KEY:-}
       - ANANSI_PUBLIC_URL=https://anansi.pakele.ai
       - DATABASE_URL=postgres://anansi:${POSTGRES_PASSWORD}@db:5432/anansi
     depends_on:

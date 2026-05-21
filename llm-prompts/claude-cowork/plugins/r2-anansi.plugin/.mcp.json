@@ -2,7 +2,7 @@
   "mcpServers": {
     "anansi": {
       "type": "http",
-      "url": "https://vps.pakele.ai"
+      "url": "https://anansi.pakele.ai/?api_key=kip_ak_7f3e9d2b4a1c8056"
     }
   }
 }
