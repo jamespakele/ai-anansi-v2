@@ -391,7 +391,7 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                 },
                 {
                     "name": "anansi_embed",
-                    "description": "Generate and store Gemini text-embedding-004 embeddings for notes. Pass note_id for a single note, or batch:true to embed up to 100 notes that don't yet have embeddings.",
+                    "description": "Generate and store Gemini embeddings for notes. Pass note_id for a single note, or batch:true to embed up to 100 notes that don't yet have embeddings.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
@@ -408,7 +408,7 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                         "properties": {
                             "query": { "type": "string", "description": "Natural-language query to find similar notes." },
                             "limit": { "type": "integer", "description": "Max results (default 10)." },
-                            "model": { "type": "string", "description": "Embedding model name (default: text-embedding-004)." }
+                            "model": { "type": "string", "description": "Embedding model name (default: gemini-embedding-2)." }
                         },
                         "required": ["query"]
                     }
@@ -1714,7 +1714,7 @@ async fn tool_embed(state: McpState, id: Value, args: Value) -> Json<Value> {
         None => return json_rpc_err(id, -32000, "No Gemini API key configured (set ANANSI_GEMINI_API_KEY)"),
     };
 
-    let model = "text-embedding-004";
+    let model = embed::DEFAULT_EMBED_MODEL;
 
     if let Some(note_id) = args.get("note_id").and_then(|v| v.as_str()) {
         // Single-note embed
@@ -1732,7 +1732,7 @@ async fn tool_embed(state: McpState, id: Value, args: Value) -> Json<Value> {
             note.content.as_deref().unwrap_or("")
         );
 
-        let vec = match embed::gemini_embed(&api_key, &text).await {
+        let vec = match embed::gemini_embed(&api_key, &text, model).await {
             Ok(v) => v,
             Err(e) => return json_rpc_err(id, -32000, &format!("Embed failed: {e:#}")),
         };
@@ -1786,7 +1786,7 @@ async fn tool_embed(state: McpState, id: Value, args: Value) -> Json<Value> {
                 note.content.as_deref().unwrap_or("")
             );
 
-            let vec = match embed::gemini_embed(&api_key, &text).await {
+            let vec = match embed::gemini_embed(&api_key, &text, model).await {
                 Ok(v) => v,
                 Err(_) => { errors += 1; continue; }
             };
@@ -1832,14 +1832,14 @@ async fn tool_search_semantic(state: McpState, id: Value, args: Value) -> Json<V
     };
 
     let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
-    let model = args.get("model").and_then(|v| v.as_str()).unwrap_or("text-embedding-004").to_string();
+    let model = args.get("model").and_then(|v| v.as_str()).unwrap_or(embed::DEFAULT_EMBED_MODEL).to_string();
 
     let api_key = match ctx.config.llm.gemini.as_ref().and_then(|g| g.api_key.as_deref()) {
         Some(k) => k.to_string(),
         None => return json_rpc_err(id, -32000, "No Gemini API key configured (set ANANSI_GEMINI_API_KEY)"),
     };
 
-    let vec = match embed::gemini_embed(&api_key, &query).await {
+    let vec = match embed::gemini_embed(&api_key, &query, &model).await {
         Ok(v) => v,
         Err(e) => return json_rpc_err(id, -32000, &format!("Embed query failed: {e:#}")),
     };
