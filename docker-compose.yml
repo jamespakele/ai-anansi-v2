@@ -22,7 +22,10 @@ services:
     restart: unless-stopped
 
   anansi:
-    image: ghcr.io/jamespakele/anansi2:latest
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
     dns_search: []   # prevent Tailscale search domain from breaking Docker DNS
     # Bind to loopback only — Traefik (host network) reaches it via 127.0.0.1:3738
     # Not exposed publicly; 0.0.0.0 is intentionally avoided.
