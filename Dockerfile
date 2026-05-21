@@ -13,9 +13,10 @@ COPY migrations ./migrations
 COPY templates ./templates
 COPY %Rules ./%Rules
 COPY anansi.toml.example ./anansi.toml.example
-# build.rs reads git SHA — copy just enough of .git for rev-parse
-COPY .git/HEAD .git/HEAD
-COPY .git/refs .git/refs
+
+# Git SHA passed as build arg from CI; build.rs reads GIT_SHA env if git isn't available
+ARG GIT_SHA=unknown
+ENV GIT_SHA=${GIT_SHA}
 
 RUN cargo build --release --target x86_64-unknown-linux-musl
 
