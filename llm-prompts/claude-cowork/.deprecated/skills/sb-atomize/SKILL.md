@@ -21,7 +21,7 @@ argument-hint: "[source content file path] [projects-areas-toc.md] [projects-are
 
 Stage 3 of the PARA atomization pipeline. Stages 1–2 (`para-projects-areas` and `para-resource-entities`) identify and scope. This skill distills content per identified entity AND runs a final Varys whisper pass over the source to surface buried signal that did not fit any identified entity.
 
-The output is **one markdown file** containing one Smart Brevity-compliant block per identified entity, separated by `---`, plus zero-or-more Varys whisper blocks at the end. Each block conforms to its matching template in `plugins/r2-anansi.plugin/references/templates/`. The output is trivially shardable into atomic notes (one entity = one block) and can be fed directly to `anansi_ingest_atomized`.
+The output is **one markdown file** containing one Smart Brevity-compliant block per identified entity, separated by `---`, plus zero-or-more Varys whisper blocks at the end. Each block conforms to its matching template in `plugins/anansi.plugin/references/templates/`. The output is trivially shardable into atomic notes (one entity = one block) and can be fed directly to `anansi_ingest_atomized`.
 
 > "Brevity is confidence. Length is fear." — and the gap is where Varys lives.
 
@@ -195,7 +195,7 @@ This drives the Discussion shard template. Read the first 50 lines of the source
 | YouTube chapter timestamps | `youtube_video` | `youtube-chapter.md` |
 | Anything else | `generic_prose` | `meeting-topic-discussion.md` (closest content_unit shape) |
 
-Load the matching template from `plugins/r2-anansi.plugin/references/templates/`. Use its `identity_fields` and body shape as the contract for Section 3 blocks.
+Load the matching template from `plugins/anansi.plugin/references/templates/`. Use its `identity_fields` and body shape as the contract for Section 3 blocks.
 
 ### Step 4 — Handle the empty-PA case (decision point)
 
@@ -492,9 +492,9 @@ See `references/design-notes.md` for the full rationale. Summary:
 - `references/entity-routing-rules.md` — which information goes in which block (boundary discipline)
 - `references/varys-detection-heuristics.md` — Varys pass taxonomy with examples
 - `references/design-notes.md` — rationale for the design decisions above
-- `plugins/r2-anansi.plugin/references/templates/` — authoritative entity templates (load by `Template:` field)
+- `plugins/anansi.plugin/references/templates/` — authoritative entity templates (load by `Template:` field)
 - `resources/sb-atomized.md` — canonical output-format contract
-- `plugins/r2-anansi.plugin/skills/smart-brevity/SKILL.md` — sibling Smart Brevity skill (single-document mode)
+- `plugins/anansi.plugin/skills/smart-brevity/SKILL.md` — sibling Smart Brevity skill (single-document mode)
 
 ---
 

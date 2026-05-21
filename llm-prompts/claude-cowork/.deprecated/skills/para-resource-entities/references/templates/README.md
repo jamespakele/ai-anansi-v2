@@ -1,6 +1,6 @@
 # Anansi Entity Templates — Authoritative Reference
 
-This directory holds all 30 entity templates used by the r2-anansi plugin to atomize source documents into typed knowledge graph nodes. **This is the single source of truth.** All other copies (vendored under individual skills) are mirrors that need to be re-synced when something here changes.
+This directory holds all 30 entity templates used by the anansi plugin to atomize source documents into typed knowledge graph nodes. **This is the single source of truth.** All other copies (vendored under individual skills) are mirrors that need to be re-synced when something here changes.
 
 ---
 
@@ -221,11 +221,11 @@ The plugin sandbox prevents skills from reaching files outside their own directo
 Current vendored locations:
 
 ```
-plugins/r2-anansi.plugin/references/templates/                                ← canonical source
-plugins/r2-anansi.plugin/skills/para-pipeline/references/templates/            ← mirror
-plugins/r2-anansi.plugin/skills/para-toc/references/templates/                 ← mirror
-plugins/r2-anansi.plugin/skills/resource-typer/references/templates/           ← mirror
-plugins/r2-anansi.plugin/skills/para-resource-entities/references/templates/ ← mirror
+plugins/anansi.plugin/references/templates/                                ← canonical source
+plugins/anansi.plugin/skills/para-pipeline/references/templates/            ← mirror
+plugins/anansi.plugin/skills/para-toc/references/templates/                 ← mirror
+plugins/anansi.plugin/skills/resource-typer/references/templates/           ← mirror
+plugins/anansi.plugin/skills/para-resource-entities/references/templates/ ← mirror
 source/templates/                                                                ← mirror (legacy/build use)
 ```
 
@@ -242,7 +242,7 @@ Each entity-type's hashes should collapse to a single value across all locations
 
 ## How to add or update a template
 
-1. **Edit only the canonical copy** at `plugins/r2-anansi.plugin/references/templates/`. The mirrors are read-only from each skill's perspective.
+1. **Edit only the canonical copy** at `plugins/anansi.plugin/references/templates/`. The mirrors are read-only from each skill's perspective.
 2. **Bump `template_version`** in the frontmatter. Use the convention: minor bump for additive field changes (new optional field, new `sources:` key); major bump for breaking changes (renamed required field, changed merge_strategy).
 3. **Update this README's per-template section** if the change is structurally significant (new required field, semantic shift, citation update).
 4. **Re-sync the mirrors:*

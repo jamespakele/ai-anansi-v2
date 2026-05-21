@@ -1,7 +1,7 @@
 ---
 name: inbox-triage
 description: >
-  Stage 4 of the r2-anansi triage pipeline. Reads an sb-atomize atomized file,
+  Stage 4 of the anansi triage pipeline. Reads an sb-atomize atomized file,
   extracts action items from Discussion and Project blocks, infers Pakele-OS
   context (me/dcs/iq/ai/anykine) and Zero-Null quadrant (arena/wuwei/zheng/radar)
   for each, then creates or updates tasks in TickTick. Attaches Varys whispers
@@ -16,7 +16,7 @@ argument-hint: "[atomized file path]"
 
 # inbox-triage
 
-Stage 4 of the r2-anansi pipeline. Upstream stages identify and atomize. This skill classifies and routes — turning action items from the atomized output into TickTick tasks, enriched with Pakele-OS context labels, Zero-Null quadrant priority, and any Varys whisper context that applies.
+Stage 4 of the anansi pipeline. Upstream stages identify and atomize. This skill classifies and routes — turning action items from the atomized output into TickTick tasks, enriched with Pakele-OS context labels, Zero-Null quadrant priority, and any Varys whisper context that applies.
 
 ---
 

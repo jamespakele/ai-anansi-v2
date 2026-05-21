@@ -6,11 +6,11 @@ status: 'complete'
 baseline_commit: 'c5d5421'
 context:
   - _bmad-output/implementation-artifacts/spec-build-10-postgres.md
-  - claude-cowork/plugins/r2-anansi.plugin/skills/r2-remember/SKILL.md
-  - claude-cowork/plugins/r2-anansi.plugin/skills/para-process/SKILL.md
-  - claude-cowork/plugins/r2-anansi.plugin/skills/para-projects-areas/SKILL.md
-  - claude-cowork/plugins/r2-anansi.plugin/skills/para-resource-entities/SKILL.md
-  - claude-cowork/plugins/r2-anansi.plugin/skills/sb-atomize/SKILL.md
+  - claude-cowork/plugins/anansi.plugin/skills/r2-remember/SKILL.md
+  - claude-cowork/plugins/anansi.plugin/skills/para-process/SKILL.md
+  - claude-cowork/plugins/anansi.plugin/skills/para-projects-areas/SKILL.md
+  - claude-cowork/plugins/anansi.plugin/skills/para-resource-entities/SKILL.md
+  - claude-cowork/plugins/anansi.plugin/skills/sb-atomize/SKILL.md
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">

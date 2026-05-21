@@ -494,7 +494,7 @@ See `references/design-notes.md` for the full rationale. Summary:
 - `references/design-notes.md` — rationale for the design decisions above
 - `references/templates/` — vendored entity templates (load by `Template:` field)
 - `resources/sb-atomized.md` — canonical output-format contract
-- `plugins/r2-anansi.plugin/skills/smart-brevity/SKILL.md` — sibling Smart Brevity skill (single-document mode)
+- `plugins/anansi.plugin/skills/smart-brevity/SKILL.md` — sibling Smart Brevity skill (single-document mode)
 
 ---
 

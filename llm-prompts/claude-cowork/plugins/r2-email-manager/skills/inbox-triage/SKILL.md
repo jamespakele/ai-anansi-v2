@@ -7,7 +7,7 @@ description: >
   each, attaches matching Varys whispers, routes orphan whispers to Anansi via
   anansi-atom, then hands the fully classified item list to
   r2-task-manager:triage-ingest for deduplication and TickTick creation.
-  Supersedes r2v2:inbox-triage and r2-anansi:inbox-triage. Triggers: "triage
+  Supersedes r2v2:inbox-triage and anansi:inbox-triage. Triggers: "triage
   the atomized output", "run inbox-triage", "/inbox-triage", "classify action
   items", "route action items", "triage this atomized file", "classify and route
   tasks", "push to ticktick", "triage email action items".
@@ -122,7 +122,7 @@ If matched: attach whisper lede + why to the item's task description payload
 as a signal note (see format in `r2-task-manager:triage-ingest`).
 
 **Orphan whispers** — whispers with no matching action item — route to Anansi
-via `r2-anansi:anansi-atom` using the `entity-note` template. Do NOT create
+via `anansi:anansi-atom` using the `entity-note` template. Do NOT create
 tasks for orphan whispers. Whispers are knowledge, not work.
 
 ---

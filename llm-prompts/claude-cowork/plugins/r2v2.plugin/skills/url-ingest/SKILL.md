@@ -5,7 +5,7 @@ description: >
   rails), extracts the main article body, and returns the file path. Pure
   extraction — no PARA logic, no atomization, no Anansi writes. The calling
   skill decides what happens next: r2v2:r2-remember hands off to
-  r2-anansi:anansi-remember for vault ingest; r2v2:quick-read hands off to
+  anansi:anansi-remember for vault ingest; r2v2:quick-read hands off to
   sb-compress for display. Output is a single markdown file with title, source
   URL, author, publish date, and fetch date in the header — body is the cleaned
   article prose. Prefers WebFetch; falls back to trafilatura or readability-lxml.

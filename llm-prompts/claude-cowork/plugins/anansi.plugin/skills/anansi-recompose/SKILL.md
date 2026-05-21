@@ -28,7 +28,7 @@ That's the entire job.
 >
 > **Read-only.** Never call `anansi_capture`, `anansi_relate`, `anansi_ingest_atomized`, or `anansi_purge` from this skill.
 >
-> **Skill-first compliance.** This skill is the proper r2-anansi wrapper for read-side recomposition. Its body calls `anansi_search` and `anansi_get` as part of executing its purpose, exactly as `r2-remember` calls `anansi_ingest_atomized` for write-side ingest.
+> **Skill-first compliance.** This skill is the proper anansi wrapper for read-side recomposition. Its body calls `anansi_search` and `anansi_get` as part of executing its purpose, exactly as `r2-remember` calls `anansi_ingest_atomized` for write-side ingest.
 
 ---
 

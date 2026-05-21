@@ -79,7 +79,7 @@ Format depends on result count and type.
 
 **Export context** — hand the markdown directly to the user (or to whatever called this skill).
 
-**No results** — say so clearly. Suggest: did you mean [closest match]? Or offer to capture the entity via `r2-anansi:anansi-atom` if it should exist but doesn't.
+**No results** — say so clearly. Suggest: did you mean [closest match]? Or offer to capture the entity via `anansi:anansi-atom` if it should exist but doesn't.
 
 ---
 

@@ -38,7 +38,7 @@ The actionability tier-bias is also inverted from para-extract: where para-extra
 This skill is one of three focused passes that replace `para-extract`'s combined scan. The split exists because each entity tier has a different failure mode and benefits from being tuned independently:
 
 1. **Pass 1a — `para-projects-areas` (this skill):** focused PA discovery with the precision rule (fail-closed on phantom commitments). Hardcodable because Projects and Areas are stable PARA primitives — Forte's definitions don't shift, and the field set is bounded. Aligned with `entity-project.md` and `entity-area.md`.
-2. **Pass 1b — `para-resource-entities` (the parallel skill):** focused Resource discovery and entity typing, template-driven because the type set is open and the templates in `plugins/r2-anansi.plugin/references/templates/` are the source of truth for what types exist and what their identity_fields look like. Emits its own paired `resources-toc.md` + `resources-typed.md` joined by the same `source_id`.
+2. **Pass 1b — `para-resource-entities` (the parallel skill):** focused Resource discovery and entity typing, template-driven because the type set is open and the templates in `plugins/anansi.plugin/references/templates/` are the source of truth for what types exist and what their identity_fields look like. Emits its own paired `resources-toc.md` + `resources-typed.md` joined by the same `source_id`.
 3. **Pass 2 — smart-brevity compression:** takes the typed PA + Resource extractions from Pass 1, walks back to the source, and produces compressed entity-shaped notes for each — using the same input-type vocabulary (email, meeting, newsletter, presentation, speech, social_media, workplace_memo, company_update, book, generic_prose) that the templates' `sources:` blocks reference.
 
 Pass 1a and Pass 1b run **in parallel** on the same source. They share the `source_id` so Pass 2 can pull both together. The split into focused passes improves discovery (each pass is tuned for its own failure mode) and improves compression (each entity gets focused attention rather than one omnibus reduction).
@@ -501,7 +501,7 @@ parallel_pair: para-resource-entities
 
 ### Template alignment
 
-The field set above is aligned with the canonical anansi entity templates at `plugins/r2-anansi.plugin/references/templates/`:
+The field set above is aligned with the canonical anansi entity templates at `plugins/anansi.plugin/references/templates/`:
 
 - `entity-project.md` (v2.1) identity_fields: `name`, `goal`, `status`, `end_date`, `summary`, `content`. The skill's `Goal` and `End date` map directly. `Status` maps when known_projects is provided. `Summary` and `Content` are optional and only emitted when the source supports a source-agnostic description.
 - `entity-area.md` (v3.1) identity_fields: `name`, `standard`, `owner`, `description`, `summary`, `content`. The skill's `Standard`, `Owner`, and `Description` map directly. `Summary` and `Content` are optional. `Responsibility source` is skill-internal (the marker trace) and lives outside the template's identity_fields — it explains *why* the Area qualified rather than *what* the Area is, and downstream code can drop it before vault writes.
@@ -1217,7 +1217,7 @@ The build order is internal: assemble Areas first to reserve their `2.N` address
 
 When invoked:
 
-1. **Read the canonical entity templates** at `plugins/r2-anansi.plugin/references/templates/entity-project.md` (v2.1+) and `entity-area.md` (v3.1+). These are the authoritative field set for File 2 output blocks. If your understanding of the field set drifts from what the templates say, trust the templates.
+1. **Read the canonical entity templates** at `plugins/anansi.plugin/references/templates/entity-project.md` (v2.1+) and `entity-area.md` (v3.1+). These are the authoritative field set for File 2 output blocks. If your understanding of the field set drifts from what the templates say, trust the templates.
 2. **Parse the input.** If `known_projects:` and/or `known_areas:` blocks appear at the top (separated from the document by `---`), extract those lists. Otherwise, proceed without them.
 3. **Read the document fully.** Don't classify on partial context.
 4. **Identify candidate entities.** Walk the document, flagging proper nouns, named efforts, named subjects, role mentions, and outcome-shaped phrases. Be liberal at this step — narrowing happens in marker-walking.

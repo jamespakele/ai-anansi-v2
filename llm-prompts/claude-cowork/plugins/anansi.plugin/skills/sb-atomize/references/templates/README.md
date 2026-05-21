@@ -1,6 +1,13 @@
-# Anansi Entity Templates — Authoritative Reference
+# Anansi Entity Templates — Vendored Mirror (sb-atomize)
 
-This directory holds all 30 entity templates used by the r2-anansi plugin to atomize source documents into typed knowledge graph nodes. **This is the single source of truth.** All other copies (vendored under individual skills) are mirrors that need to be re-synced when something here changes.
+This directory is a **vendored mirror** of the canonical template library at `plugins/anansi.plugin/references/templates/`. It holds all templates so this skill can run sandboxed without reaching outside its own directory. **Do not edit files here directly** — edit the canonical copy and re-sync.
+
+Re-sync command (run from repo root):
+```
+CANONICAL="llm-prompts/claude-cowork/plugins/anansi.plugin/references/templates"
+DEST="llm-prompts/claude-cowork/plugins/anansi.plugin/skills/sb-atomize/references/templates"
+cp "$CANONICAL"/*.md "$DEST/"
+```
 
 ---
 
@@ -221,9 +228,8 @@ The plugin sandbox prevents skills from reaching files outside their own directo
 Current vendored locations:
 
 ```
-plugins/r2-anansi.plugin/references/templates/                                ← canonical source
-plugins/r2-anansi.plugin/skills/para-resource-entities/references/templates/ ← mirror (full library)
-plugins/r2-anansi.plugin/skills/sb-atomize/references/templates/              ← mirror (full library)
+plugins/anansi.plugin/references/templates/                                ← canonical source
+plugins/anansi.plugin/skills/para-resource-entities/references/templates/ ← mirror (full library)
 ```
 
 `para-projects-areas` references the canonical path directly by design — Projects and Areas are
@@ -244,15 +250,14 @@ Each entity-type's hashes should collapse to a single value across all locations
 
 ## How to add or update a template
 
-1. **Edit only the canonical copy** at `plugins/r2-anansi.plugin/references/templates/`. The mirror is read-only from each skill's perspective.
+1. **Edit only the canonical copy** at `plugins/anansi.plugin/references/templates/`. The mirror is read-only from each skill's perspective.
 2. **Bump `template_version`** in the frontmatter. Use the convention: minor bump for additive field changes (new optional field, new `sources:` key); major bump for breaking changes (renamed required field, changed merge_strategy).
 3. **Update this README's per-template section** if the change is structurally significant (new required field, semantic shift, citation update).
-4. **Re-sync the mirrors:**
+4. **Re-sync the mirror:**
    ```
-   CANONICAL="plugins/r2-anansi.plugin/references/templates"
-   for skill in para-resource-entities sb-atomize; do
-     cp "$CANONICAL"/*.md "plugins/r2-anansi.plugin/skills/$skill/references/templates/"
-   done
+   CANONICAL="plugins/anansi.plugin/references/templates"
+   DEST="plugins/anansi.plugin/skills/para-resource-entities/references/templates"
+   cp "$CANONICAL"/*.md "$DEST/"
    ```
 5. **Verify** with `sha256sum` that all copies of the touched template share one hash.
 6. **Strip null bytes** as a defensive measure if your editor or sync tool introduces them — the OneDrive sync layer has been observed to inject trailing nulls on some writes.

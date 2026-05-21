@@ -1,5 +1,5 @@
 ---
-name: r2-remember
+name: anansi-remember
 description: >
   Single entry point for committing anything to the Anansi knowledge base.
   Routes automatically across three paths: (A) single named entity or quick
@@ -17,7 +17,7 @@ description: >
 argument-hint: "[file path, pasted content, atomized .md, or entity facts]"
 ---
 
-# r2-remember
+# anansi-remember
 
 The single entry point for committing anything to the Anansi knowledge base.
 
@@ -37,7 +37,7 @@ to the right path. Three paths, one skill. The user never picks.
 
 > **MCP namespace.** The Anansi MCP may surface under more than one
 > prefix in the same session — e.g. `mcp__f36a3bbf-...__anansi_*` and
-> `mcp__plugin_r2-anansi_anansi__anansi_*`. Both route to the same
+> `mcp__plugin_anansi_anansi__anansi_*`. Both route to the same
 > Rust ingest binary and are functionally identical. Pick whichever is
 > available; if both are connected, prefer the plugin-scoped one. The
 > CLAUDE.md skill-first rule applies regardless of prefix — every
@@ -247,10 +247,10 @@ When `remember` is invoked immediately after a `para-process` →
 
 ## Why this skill exists
 
-Replaces the legacy `anansi-remember` skill, with the same three-path
-routing but using the current server-side ingest tool. The server parses
-the atomized block set, applies the per-type field mapping internally
-(lede / why / content / edges per project / area / discussion / person /
-organization / note / whisper / event), creates the outline note, and
-writes hierarchy edges. The skill stays out of the parsing business so
-field-mapping bugs can't happen on the client side.
+Renamed from `r2-remember`, with the same three-path routing and the same
+server-side ingest tool. URL extraction (YouTube, articles) now lives in
+`r2v2:r2-remember`, which calls this skill after extraction is done. The
+server parses the atomized block set, applies the per-type field mapping
+internally, creates the outline note, and writes hierarchy edges. The skill
+stays out of the parsing business so field-mapping bugs can't happen on the
+client side.

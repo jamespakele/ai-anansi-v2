@@ -1,5 +1,5 @@
 {
-  "name": "r2-anansi",
+  "name": "anansi",
   "version": "0.8.0",
   "description": "PARA atomization pipeline for Anansi. Skills: para-process, para-projects-areas, para-resource-entities, sb-atomize, r2-remember, anansi-atom, anansi-update, anansi-delete, anansi-purge, anansi-ingest-file, anansi-recompose, scaffold-template. Pairs with the standalone smart-brevity skill for single-document compression.",
   "author": {

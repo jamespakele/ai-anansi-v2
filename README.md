@@ -176,7 +176,7 @@ poll_interval_secs = 30
 llm_backend        = "gemini"          # optional: overrides [llm] backend for inbox only
 ```
 
-Prompts are loaded at runtime from the live skill files in `claude-cowork/plugins/r2-anansi.plugin/skills/` — editing a skill in Cowork takes effect on the next poll without a rebuild.
+Prompts are loaded at runtime from the live skill files in `claude-cowork/plugins/anansi.plugin/skills/` — editing a skill in Cowork takes effect on the next poll without a rebuild.
 
 ---
 

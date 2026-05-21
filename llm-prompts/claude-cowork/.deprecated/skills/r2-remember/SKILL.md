@@ -37,7 +37,7 @@ to the right path. Three paths, one skill. The user never picks.
 
 > **MCP namespace.** The Anansi MCP may surface under more than one
 > prefix in the same session — e.g. `mcp__f36a3bbf-...__anansi_*` and
-> `mcp__plugin_r2-anansi_anansi__anansi_*`. Both route to the same
+> `mcp__plugin_anansi_anansi__anansi_*`. Both route to the same
 > Rust ingest binary and are functionally identical. Pick whichever is
 > available; if both are connected, prefer the plugin-scoped one. The
 > CLAUDE.md skill-first rule applies regardless of prefix — every

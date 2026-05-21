@@ -212,4 +212,4 @@ Call: `anansi_archive_note`
   confirmation, one call.
 - When ambiguous between hard delete and archive, **default to archive**.
 - Never call `anansi_purge` from this skill — that's a source-level bulk
-  operation handled by `r2-anansi:anansi-purge`.
+  operation handled by `anansi:anansi-purge`.

@@ -4,7 +4,7 @@ description: >
   Ingests any content into the Anansi knowledge base — YouTube videos,
   article URLs, local files, pasted text, or named entities. Handles source
   extraction for URLs (yt-ingest for YouTube, url-ingest for articles), then
-  hands the resulting file to r2-anansi:anansi-remember for vault commit.
+  hands the resulting file to anansi:anansi-remember for vault commit.
   Non-URL inputs (files, pasted text, entities) go directly to
   anansi-remember. This is the primary "remember this" entry point in the
   r2v2 plugin. Triggers: "remember this", "remember this article",
@@ -24,7 +24,7 @@ Two legs, one skill:
 1. **Extract** — if the input is a URL, call the right ingest skill to
    produce a clean markdown file.
 2. **Commit** — hand the file (or the original input, if no extraction was
-   needed) to `r2-anansi:anansi-remember`.
+   needed) to `anansi:anansi-remember`.
 
 ---
 
@@ -54,7 +54,7 @@ URL and receive the file path back.
 
 ## Step 3 — Commit to Anansi
 
-Invoke `r2-anansi:anansi-remember` with:
+Invoke `anansi:anansi-remember` with:
 - The file path from Step 2 (for URL inputs), or
 - The original input as-is (for files, pasted text, entities).
 
