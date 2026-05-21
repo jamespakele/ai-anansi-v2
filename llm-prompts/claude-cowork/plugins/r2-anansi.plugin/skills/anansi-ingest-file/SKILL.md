@@ -51,7 +51,7 @@ Use **r2-remember** instead when you want to review the pipeline output
    ```
 2. The tool returns `curl_inbox` — a ready-to-run curl command. Execute it via bash:
    ```bash
-   curl -F 'file=@/path/to/file.md' https://vps.pakele.ai/upload/inbox
+   curl -F 'file=@/path/to/file.md' https://anansi.pakele.ai/upload/inbox
    ```
 3. Expected response: `{ "status": "queued", "filename": "...", "bytes": N }`
 

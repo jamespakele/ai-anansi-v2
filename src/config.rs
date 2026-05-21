@@ -221,7 +221,7 @@ pub struct ServerConfig {
     pub host: String,
     #[serde(default)]
     pub read_only: bool,
-    /// Public base URL used to generate export download links, e.g. "https://vps.pakele.ai"
+    /// Public base URL used to generate export download links, e.g. "https://anansi.pakele.ai"
     pub public_url: Option<String>,
     /// Optional API key that must be presented on every MCP request.
     /// Accepted as `Authorization: Bearer <key>` header or `?api_key=<key>` query param.

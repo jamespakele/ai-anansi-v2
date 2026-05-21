@@ -30,6 +30,10 @@ json_mode = false
 mcp_port = 3738
 host = "0.0.0.0"
 read_only = false
+# api_key = "kip_ak_..."              # optional; enforce auth on all MCP requests
+                                      # accepted as: Authorization: Bearer <key>
+                                      # or query param: ?api_key=<key>
+                                      # override at runtime: export ANANSI_API_KEY=...
 
 # ─── Gemini backend ───────────────────────────────────────────────────────────
 # backend = "gemini" checks for the gemini CLI first (Google OAuth / subscription quota).

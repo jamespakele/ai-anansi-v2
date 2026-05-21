@@ -73,12 +73,12 @@ services:
     environment:
       DATABASE_URL: postgres://anansi:${POSTGRES_PASSWORD}@db:5432/anansi
       ANANSI_GEMINI_API_KEY: ${ANANSI_GEMINI_API_KEY}
-      ANANSI_PUBLIC_URL: https://vps.pakele.ai
+      ANANSI_PUBLIC_URL: https://anansi.pakele.ai
     volumes:
       - ./data/anansi:/data/anansi
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.anansi.rule=Host(`vps.pakele.ai`)"
+      - "traefik.http.routers.anansi.rule=Host(`anansi.pakele.ai`)"
       - "traefik.http.routers.anansi.entrypoints=websecure"
       - "traefik.http.routers.anansi.tls.certresolver=letsencrypt"
       - "traefik.http.services.anansi.loadbalancer.server.port=3000"
