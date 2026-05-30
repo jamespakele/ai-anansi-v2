@@ -10,7 +10,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY build.rs ./build.rs
 COPY src ./src
 COPY migrations ./migrations
-COPY templates ./templates
+COPY llm/plugins/anansi.plugin/references/templates ./llm/plugins/anansi.plugin/references/templates
 COPY %Rules ./%Rules
 COPY anansi.toml.example ./anansi.toml.example
 
