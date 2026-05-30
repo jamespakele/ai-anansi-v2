@@ -13,9 +13,23 @@ description: >
   source mentions a book by title, or when the source IS a book being
   processed through the pipeline.
 identity_fields:
-  - title
-  - author
-  - year
+  title:
+    type: string
+    required: true
+    description: "Full title of the book, including subtitle"
+  author:
+    type: string
+    required: true
+    description: "Author(s) — last name, first name format"
+  year:
+    type: string
+    description: "Publication year (four-digit)"
+  publisher:
+    type: string
+    description: "Publisher name"
+  isbn:
+    type: string
+    description: "ISBN-13 if known"
 sources:
   book:
     hint: >

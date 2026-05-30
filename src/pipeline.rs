@@ -855,6 +855,21 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
                 )
                 .await?
             }
+            MergeStrategy::TitleAuthor => {
+                // title_author deduplicates via match_key (title+author slug);
+                // merge behaviour is identical to pure_atomic.
+                merger::merge_pure_atomic(
+                    &ctx.db,
+                    &ctx.vault,
+                    note_proto.clone(),
+                    &p3_out.fields,
+                    &body_rendered,
+                    &source_id,
+                    Some(&leaf.address),
+                    leaf.hint.as_deref(),
+                )
+                .await?
+            }
         };
 
         // Track results
@@ -986,6 +1001,7 @@ fn merge_strategy_str(strategy: &MergeStrategy) -> &'static str {
         MergeStrategy::PureAtomic => "pure_atomic",
         MergeStrategy::Container => "container",
         MergeStrategy::SourceBound => "source_bound",
+        MergeStrategy::TitleAuthor => "title_author",
     }
 }
 
@@ -1026,7 +1042,7 @@ mod tests {
     #[test]
     fn validate_preprocessed_toc_valid() {
         let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        let templates = TemplateRegistry::load(&std::path::PathBuf::from(&manifest).join("templates"))
+        let templates = TemplateRegistry::load(&std::path::PathBuf::from(&manifest).join("llm").join("plugins").join("anansi.plugin").join("references").join("templates"))
             .expect("load templates");
         let toc = "1.1 Ian Kitajima [person]\n1.2 PICHTR [organization]\n";
         let result = validate_preprocessed_toc(toc, &templates);
@@ -1037,7 +1053,7 @@ mod tests {
     #[test]
     fn validate_preprocessed_toc_duplicate_address() {
         let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        let templates = TemplateRegistry::load(&std::path::PathBuf::from(&manifest).join("templates"))
+        let templates = TemplateRegistry::load(&std::path::PathBuf::from(&manifest).join("llm").join("plugins").join("anansi.plugin").join("references").join("templates"))
             .expect("load templates");
         let toc = "1.1 Ian Kitajima [person]\n1.1 PICHTR [organization]\n";
         let result = validate_preprocessed_toc(toc, &templates);
@@ -1048,7 +1064,7 @@ mod tests {
     #[test]
     fn validate_preprocessed_toc_unknown_type() {
         let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        let templates = TemplateRegistry::load(&std::path::PathBuf::from(&manifest).join("templates"))
+        let templates = TemplateRegistry::load(&std::path::PathBuf::from(&manifest).join("llm").join("plugins").join("anansi.plugin").join("references").join("templates"))
             .expect("load templates");
         let toc = "1.1 Something [nonexistent_type]\n";
         let result = validate_preprocessed_toc(toc, &templates);

@@ -31,6 +31,7 @@ pub enum MergeStrategy {
     PureAtomic,
     Container,
     SourceBound,
+    TitleAuthor,
 }
 
 impl<'de> Deserialize<'de> for MergeStrategy {
@@ -40,6 +41,7 @@ impl<'de> Deserialize<'de> for MergeStrategy {
             "pure_atomic" => Ok(MergeStrategy::PureAtomic),
             "container" => Ok(MergeStrategy::Container),
             "source_bound" => Ok(MergeStrategy::SourceBound),
+            "title_author" => Ok(MergeStrategy::TitleAuthor),
             other => Err(serde::de::Error::custom(format!("unknown merge_strategy: {other}"))),
         }
     }
@@ -146,6 +148,10 @@ impl TemplateRegistry {
             let entry = entry?;
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            // Skip non-template markdown files (e.g. README.md)
+            if path.file_name().and_then(|n| n.to_str()) == Some("README.md") {
                 continue;
             }
 
@@ -347,7 +353,7 @@ mod tests {
     fn templates_dir() -> PathBuf {
         // Resolve relative to the crate root
         let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        PathBuf::from(manifest).join("templates")
+        PathBuf::from(manifest).join("llm").join("plugins").join("anansi.plugin").join("references").join("templates")
     }
 
     #[test]

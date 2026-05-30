@@ -19,6 +19,7 @@ use crate::db::{self, EdgeRecord, now_rfc3339};
 use crate::embed;
 use crate::export;
 use crate::pipeline::{ingest, IngestContext};
+use crate::template::{TemplateClass, MergeStrategy};
 
 // ---------------------------------------------------------------------------
 // MCP State
@@ -450,6 +451,19 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                             }
                         }
                     }
+                },
+                {
+                    "name": "anansi_list_entity_types",
+                    "description": "List all registered entity types from the template registry. Returns metadata for each type including template_class, merge_strategy, description, version, and identity field names. Useful for discovering what entity types exist before creating notes or scaffolding new templates.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "template_class": { "type": "string", "enum": ["identity", "content_unit", "source", "utility"], "description": "Filter by template class." },
+                            "merge_strategy": { "type": "string", "enum": ["pure_atomic", "container", "source_bound", "title_author"], "description": "Filter by merge strategy." },
+                            "atomic": { "type": "boolean", "description": "Filter by atomic flag (true = stored as notes, false = decomposed into content_units)." },
+                            "verbose": { "type": "boolean", "description": "If true, include full identity_fields with types and descriptions. Default false (field names only)." }
+                        }
+                    }
                 }
             ]
         }),
@@ -495,6 +509,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_search_semantic" => tool_search_semantic(state, id, args).await,
         "anansi_export_context" => tool_export_context(state, id, args).await,
         "anansi_export_vault" => tool_export_vault(state, id, args).await,
+        "anansi_list_entity_types" => tool_list_entity_types(state, id, args).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
 }
@@ -1927,4 +1942,113 @@ async fn handle_export_download(
             axum::body::Bytes::from("Export not found"),
         ),
     }
+}
+
+// ---------------------------------------------------------------------------
+// anansi_list_entity_types
+// ---------------------------------------------------------------------------
+
+async fn tool_list_entity_types(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let filter_class = args.get("template_class").and_then(|v| v.as_str());
+    let filter_strategy = args.get("merge_strategy").and_then(|v| v.as_str());
+    let filter_atomic = args.get("atomic").and_then(|v| v.as_bool());
+    let verbose = args.get("verbose").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let registry = &state.ctx.templates;
+    let all_types = registry.all_entity_types();
+
+    let mut items: Vec<Value> = Vec::new();
+
+    for entity_type in &all_types {
+        let Some(tmpl) = registry.get(entity_type) else { continue };
+
+        // Apply filters
+        if let Some(fc) = filter_class {
+            let class_str = match tmpl.template_class {
+                TemplateClass::Identity => "identity",
+                TemplateClass::ContentUnit => "content_unit",
+                TemplateClass::Source => "source",
+                TemplateClass::Utility => "utility",
+            };
+            if class_str != fc { continue; }
+        }
+
+        if let Some(fs) = filter_strategy {
+            let strategy_str = match tmpl.merge_strategy {
+                MergeStrategy::PureAtomic => "pure_atomic",
+                MergeStrategy::Container => "container",
+                MergeStrategy::SourceBound => "source_bound",
+                MergeStrategy::TitleAuthor => "title_author",
+            };
+            if strategy_str != fs { continue; }
+        }
+
+        if let Some(fa) = filter_atomic {
+            if tmpl.atomic != fa { continue; }
+        }
+
+        let class_str = match tmpl.template_class {
+            TemplateClass::Identity => "identity",
+            TemplateClass::ContentUnit => "content_unit",
+            TemplateClass::Source => "source",
+            TemplateClass::Utility => "utility",
+        };
+        let strategy_str = match tmpl.merge_strategy {
+            MergeStrategy::PureAtomic => "pure_atomic",
+            MergeStrategy::Container => "container",
+            MergeStrategy::SourceBound => "source_bound",
+            MergeStrategy::TitleAuthor => "title_author",
+        };
+
+        let fields_value = if verbose {
+            // Full field details
+            let fields_map: serde_json::Map<String, Value> = tmpl.identity_fields.iter()
+                .map(|(name, def)| {
+                    let mut field_obj = serde_json::Map::new();
+                    field_obj.insert("type".to_string(), json!(def.field_type));
+                    field_obj.insert("required".to_string(), json!(def.required));
+                    if let Some(ref fmt) = def.format {
+                        field_obj.insert("format".to_string(), json!(fmt));
+                    }
+                    if let Some(ref desc) = def.description {
+                        field_obj.insert("description".to_string(), json!(desc));
+                    }
+                    (name.clone(), Value::Object(field_obj))
+                })
+                .collect();
+            Value::Object(fields_map)
+        } else {
+            // Field names only
+            let mut field_names: Vec<&str> = tmpl.identity_fields.keys()
+                .map(|s| s.as_str())
+                .collect();
+            field_names.sort();
+            json!(field_names)
+        };
+
+        items.push(json!({
+            "entity_type": entity_type,
+            "template_class": class_str,
+            "atomic": tmpl.atomic,
+            "merge_strategy": strategy_str,
+            "description": tmpl.description,
+            "template_version": tmpl.template_version,
+            "identity_fields": fields_value,
+        }));
+    }
+
+    let total = items.len();
+
+    json_rpc_ok(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({
+                    "total": total,
+                    "entity_types": items
+                })).unwrap_or_default()
+            }]
+        }),
+    )
 }
