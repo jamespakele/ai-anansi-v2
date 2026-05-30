@@ -1,8 +1,0 @@
-{
-  "name": "r2-task-manager",
-  "version": "0.1.0",
-  "description": "Task management interface layer for Pakele-OS. Adapter-backed skills for creating, querying, updating, and routing tasks, projects, and areas — currently wired to TickTick, with ClickUp support planned.",
-  "author": {
-    "name": "James Pakele"
-  }
-}

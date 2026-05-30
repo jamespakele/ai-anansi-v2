@@ -1,8 +1,0 @@
-{
-  "name": "r2-email-manager",
-  "version": "0.1.0",
-  "description": "Gmail management layer for Pakele-OS. Three skills that close the email loop: pull unread threads from Gmail, draft context-matched replies, and apply labels/archive after triage.",
-  "author": {
-    "name": "James Pakele"
-  }
-}
