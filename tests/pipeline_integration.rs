@@ -117,7 +117,7 @@ async fn make_context(
         config,
         vault,
         db,
-        templates,
+        templates: tokio::sync::RwLock::new(templates),
         rules,
         llm: Some(llm),
     })

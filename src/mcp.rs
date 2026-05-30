@@ -464,6 +464,14 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                             "verbose": { "type": "boolean", "description": "If true, include full identity_fields with types and descriptions. Default false (field names only)." }
                         }
                     }
+                },
+                {
+                    "name": "anansi_reload_templates",
+                    "description": "Hot-reload the template registry from the database without restarting the server. Call this after creating or updating an anansi_config:template:* note to activate a new entity type immediately. Returns the count of templates loaded from DB.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                    }
                 }
             ]
         }),
@@ -510,6 +518,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_export_context" => tool_export_context(state, id, args).await,
         "anansi_export_vault" => tool_export_vault(state, id, args).await,
         "anansi_list_entity_types" => tool_list_entity_types(state, id, args).await,
+        "anansi_reload_templates" => tool_reload_templates(state, id).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
 }
@@ -1954,7 +1963,7 @@ async fn tool_list_entity_types(state: McpState, id: Value, args: Value) -> Json
     let filter_atomic = args.get("atomic").and_then(|v| v.as_bool());
     let verbose = args.get("verbose").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    let registry = &state.ctx.templates;
+    let registry = state.ctx.templates.read().await;
     let all_types = registry.all_entity_types();
 
     let mut items: Vec<Value> = Vec::new();
@@ -2051,4 +2060,30 @@ async fn tool_list_entity_types(state: McpState, id: Value, args: Value) -> Json
             }]
         }),
     )
+}
+
+async fn tool_reload_templates(state: McpState, id: Value) -> Json<Value> {
+    // Acquire write lock on the template registry
+    let mut registry = state.ctx.templates.write().await;
+
+    match registry.load_from_db(&state.ctx.db).await {
+        Ok(loaded) => {
+            let total = registry.all_entity_types().len();
+            eprintln!("[anansi2] template registry reloaded: {loaded} from DB, {total} total");
+            json_rpc_ok(
+                id,
+                json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string(&json!({
+                            "reloaded_from_db": loaded,
+                            "total_entity_types": total,
+                            "status": "ok"
+                        })).unwrap_or_default()
+                    }]
+                }),
+            )
+        }
+        Err(e) => json_rpc_err(id, -32000, &format!("Failed to reload templates: {e}")),
+    }
 }

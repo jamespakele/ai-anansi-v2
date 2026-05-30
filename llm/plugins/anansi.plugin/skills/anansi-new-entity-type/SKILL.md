@@ -112,41 +112,55 @@ schema documented in `scaffold-template`. The file has three parts:
 Show the generated template to the user in a fenced code block. Ask for
 confirmation or edits before writing to disk.
 
-### Step 5 — Write and sync
+### Step 5 — Store in database and activate
 
-1. **Determine filename:**
-   - `identity` → `entity-<type>.md`
-   - `content_unit` / `source` → `<family>-<type>.md`
-   - `utility` → `<type>.md`
+The database is the shared communication channel between Claude Cowork and the
+Anansi server. Templates are stored as `anansi_config` notes.
 
-2. **Write to canonical location:**
+1. **Store the template via MCP** — call `anansi_capture` (or `anansi_update_note`) to
+   create/update the note:
+   - `entity_type: "anansi_config"`
+   - `name: "Template: <new_entity_type>"`
+   - `match_key: "anansi_config:template:<new_entity_type>"`
+   - `content: <full template markdown>` (the entire template with YAML frontmatter,
+     `%%` field blocks, and body)
+   - `lede: "Template definition for entity type '<new_entity_type>'"`
+   - `merge_category: "pure_atomic"`
+
+2. **Hot-reload the server registry** — call `anansi_reload_templates` to make the
+   new entity type immediately available. The server reads the template from the
+   DB and parses it into its live registry — no restart needed.
+
+3. **Verify** — call `anansi_list_entity_types` and confirm the new type appears.
+
+4. **Optionally write locally** — if the user is working in the anansi source
+   codebase and wants the template available for `anansi2 init` seeding, also
+   write the file to:
    ```
    llm/plugins/anansi.plugin/references/templates/<filename>
    ```
-
-3. **Sync vendored mirrors** — copy to:
+   And sync to vendored mirrors:
    ```
    llm/plugins/anansi.plugin/skills/para-resource-entities/references/templates/<filename>
    llm/plugins/anansi.plugin/skills/sb-atomize/references/templates/<filename>
    ```
 
-4. **Verify** all three copies are byte-identical.
-
 ### Step 6 — Post-creation guidance
 
 Tell the user:
 
-> ✅ Template `<filename>` created and synced to 3 locations.
+> ✅ Template `<entity_type>` created and activated.
 >
-> **To make this available to the MCP server:**
+> **What happened:**
+> - Stored as `anansi_config:template:<entity_type>` in the database
+> - Hot-reloaded into the server's live template registry
+> - The new type is immediately available for MCP tools and pipeline ingestion
+>
+> **LLM skill availability:**
 > - The LLM skills (sb-atomize, para-resource-entities) will pick up the
->   new template immediately on next invocation.
-> - The Rust MCP server loads templates at startup from the vault's
->   `templates_dir` (configured in `anansi.toml`). Run `anansi2 init` to
->   sync templates to your vault, then restart the server.
-> - If the Rust binary embeds templates via `include_str!`, you'll need to
->   add a new const in `src/main.rs` and rebuild. This is only needed if
->   the template should be available for `anansi2 init` vault seeding.
+>   new template from the database on next invocation.
+> - If you also want this template in the source codebase for `anansi2 init`
+>   seeding, let me know and I'll write it to the local templates directory.
 
 ---
 
@@ -186,72 +200,12 @@ Filenames use kebab-case (e.g., `meeting-topic-discussion.md`).
 - identity_fields: name (required), address (string), type (string), met_via (string)
 - source hints: meeting_summary, email_thread, container
 
-**Step 3–4:** Generate and confirm:
+**Step 3–4:** Generate and confirm (same as before).
 
-```markdown
----
-entity_type: place
-template_class: identity
-atomic: true
-merge_strategy: pure_atomic
-template_version: "3.0"
-description: "A named physical location — restaurant, office, park, venue"
-
-atomic_criteria: >
-  Represents one named real-world place with durable identity. Identity-only
-  — name, address, type, and connection origin. What happened here lives in
-  downstream event/context notes; relationships flow through edges.
-
-identity_fields:
-  name:
-    type: string
-    required: true
-  address:
-    type: string
-    description: "Street address or general location"
-  type:
-    type: string
-    description: "Restaurant, office, park, museum, venue, etc."
-  met_via:
-    type: string
-    description: "How the user came to know this place — one sentence"
-
-sources:
-  meeting_summary:
-    hint: "Check meeting venue / location field"
-  email_thread:
-    hint: "Check signature blocks for office addresses; 'meet at' phrases"
-  container:
-    hint: "Check any named locations referenced"
-toc_structure: "none"
----
-%%
-field: name
-description: The place's primary name as commonly used
-%%
-%%
-field: address
-description: Street address or general location, if mentioned
-%%
-%%
-field: type
-description: Category — restaurant, office, park, museum, venue, etc.
-%%
-%%
-field: met_via
-description: One short sentence on how the user came to know this place. Smart-brevity style — ≤15 words.
-%%
-# {{name}}
-
-## Identity
-- Address: {{address}}
-- Type: {{type}}
-
-## Met via
-{{met_via}}
-```
-
-**Step 5:** Write to `entity-place.md` in canonical + 2 mirrors.
+**Step 5:** Store via MCP:
+1. Call `anansi_capture` with match_key `anansi_config:template:place`, content = full template markdown
+2. Call `anansi_reload_templates` → server confirms it loaded the new template
+3. Call `anansi_list_entity_types` → verify `place` appears in the identity types
 
 **Step 6:** Display post-creation guidance.
 
@@ -262,8 +216,11 @@ description: One short sentence on how the user came to know this place. Smart-b
 - **scaffold-template** — this skill's output format matches scaffold-template's
   schema. anansi-new-entity-type is the guided end-to-end version.
 - **para-resource-entities** — consumes identity templates at extraction time.
-  New identity types appear in its type oracle automatically after vendored sync.
+  New identity types appear in its type oracle automatically after DB reload.
 - **sb-atomize** — consumes all templates during atomization. New types are
-  available to Pass 1 TOC generation and Pass 3 extraction after sync.
+  available to Pass 1 TOC generation and Pass 3 extraction after reload.
 - **anansi_list_entity_types** — the MCP tool this skill calls in Step 1 to
   check for existing types.
+- **anansi_reload_templates** — the MCP tool this skill calls in Step 5 to
+  hot-reload the template registry after creating a new type.
+

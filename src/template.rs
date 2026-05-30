@@ -5,6 +5,8 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::db::{self, DbPool};
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TemplateClass {
     Identity,
@@ -94,6 +96,10 @@ struct TemplateFrontmatter {
     description: String,
     #[serde(default)]
     floor_prompt: Option<String>,
+    /// Explicit source family (e.g., "meeting", "email"). If absent,
+    /// derived from filename prefix at load time.
+    #[serde(default)]
+    source_family: Option<String>,
     #[serde(default)]
     identity_fields: HashMap<String, FieldDef>,
     #[serde(default)]
@@ -161,18 +167,54 @@ impl TemplateRegistry {
             let mut template = parse_template(&content)
                 .with_context(|| format!("parsing template: {}", path.display()))?;
 
-            // Parse source_family from filename prefix (e.g. "meeting-topic-discussion" → "meeting")
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            template.source_family = if stem.starts_with("identity-") || !stem.contains('-') {
-                None
-            } else {
-                stem.splitn(2, '-').next().map(|s| s.to_string())
-            };
+            // Use explicit source_family from frontmatter if present;
+            // otherwise derive from filename prefix (e.g. "meeting-topic-discussion" → "meeting")
+            if template.source_family.is_none() {
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                template.source_family = if stem.starts_with("identity-") || !stem.contains('-') {
+                    None
+                } else {
+                    stem.splitn(2, '-').next().map(|s| s.to_string())
+                };
+            }
 
             templates.insert(template.entity_type.clone(), template);
         }
 
         Ok(Self { templates })
+    }
+
+    /// Merge a single template from raw markdown content into the registry.
+    /// Returns the entity_type if successful.
+    pub fn load_from_content(&mut self, content: &str) -> Result<String> {
+        let template = parse_template(content)?;
+        let entity_type = template.entity_type.clone();
+        self.templates.insert(entity_type.clone(), template);
+        Ok(entity_type)
+    }
+
+    /// Merge all anansi_config:template:* notes from the database into this registry.
+    /// Returns the number of templates loaded.
+    pub async fn load_from_db(&mut self, pool: &DbPool) -> Result<usize> {
+        let notes = db::filter_notes(pool, Some("anansi_config"), None, None, 500, true).await?;
+        let mut loaded = 0;
+        for note in notes {
+            if !note.match_key.starts_with("anansi_config:template:") {
+                continue;
+            }
+            if let Some(ref content) = note.content {
+                match self.load_from_content(content) {
+                    Ok(et) => {
+                        eprintln!("[anansi2] loaded template from DB: {et}");
+                        loaded += 1;
+                    }
+                    Err(e) => {
+                        eprintln!("WARN: skipping template note {}: {e}", note.match_key);
+                    }
+                }
+            }
+        }
+        Ok(loaded)
     }
 
     pub fn get(&self, entity_type: &str) -> Option<&Template> {
@@ -247,7 +289,7 @@ impl TemplateRegistry {
     }
 }
 
-fn parse_template(content: &str) -> Result<Template> {
+pub fn parse_template(content: &str) -> Result<Template> {
     // Extract YAML frontmatter between first --- pair
     let rest = content.strip_prefix("---\n").unwrap_or(content.strip_prefix("---\r\n").unwrap_or(content));
     let (fm_str, after_fm) = rest
@@ -272,7 +314,7 @@ fn parse_template(content: &str) -> Result<Template> {
         template_version: fm.template_version,
         description: fm.description,
         floor_prompt: fm.floor_prompt,
-        source_family: None, // set by load() from filename
+        source_family: fm.source_family, // explicit from frontmatter, or None (set by load() from filename)
         identity_fields: fm.identity_fields,
         sources: fm.sources,
         roster_sections: fm.roster_sections,

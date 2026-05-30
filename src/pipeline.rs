@@ -53,7 +53,7 @@ pub struct IngestContext {
     pub config: Config,
     pub vault: Vault,
     pub db: DbPool,
-    pub templates: TemplateRegistry,
+    pub templates: tokio::sync::RwLock<TemplateRegistry>,
     pub rules: RuleRegistry,
     pub llm: Option<Box<dyn LlmClient>>,
 }
@@ -568,6 +568,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
     let llm = ctx.llm.as_ref()
         .ok_or_else(|| anyhow!("legacy ingest requires an LLM backend — configure [llm] in anansi.toml or set ANANSI_GEMINI_API_KEY"))?;
     let start = Instant::now();
+    let templates = ctx.templates.read().await;
 
     // 1. Parse source file
     let (frontmatter, body) = parse_source_file(source_path)
@@ -621,7 +622,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
 
     if let Some(preprocessed) = frontmatter.get("anansi_toc") {
         // Validate
-        match validate_preprocessed_toc(preprocessed, &ctx.templates) {
+        match validate_preprocessed_toc(preprocessed, &templates) {
             Ok(_) => {
                 toc_text = preprocessed.clone();
                 preprocessed_toc = 1;
@@ -630,7 +631,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
             Err(e) => {
                 tracing_warn(&format!("Invalid preprocessed TOC: {e}. Falling back to Pass 1."));
                 let p1_prompt =
-                    prompt::build_pass1(&ctx.rules, &ctx.templates, &body, &source_type)?;
+                    prompt::build_pass1(&ctx.rules, &templates, &body, &source_type)?;
                 let opts = InferOpts::from_settings(&ctx.config.llm.decomposition);
                 toc_text = llm.infer(&p1_prompt, opts).await
                     .with_context(|| "LLM Pass 1 inference failed")?;
@@ -640,7 +641,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
             }
         }
     } else {
-        let p1_prompt = prompt::build_pass1(&ctx.rules, &ctx.templates, &body, &source_type)?;
+        let p1_prompt = prompt::build_pass1(&ctx.rules, &templates, &body, &source_type)?;
         let opts = InferOpts::from_settings(&ctx.config.llm.decomposition);
         toc_text = llm.infer(&p1_prompt, opts).await
             .with_context(|| "LLM Pass 1 inference failed")?;
@@ -736,7 +737,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
             })
             .collect::<Vec<_>>()
             .join("\n");
-        let batch_prompt = prompt::build_pass3_batch(&ctx.rules, &ctx.templates, &toc_str, &body, &implicit_edges_str)?;
+        let batch_prompt = prompt::build_pass3_batch(&ctx.rules, &templates, &toc_str, &body, &implicit_edges_str)?;
         let mut batch_opts = InferOpts::from_settings(&ctx.config.llm.synthesis);
         batch_opts.json_mode = true;
         let batch_raw = llm.infer(&batch_prompt, batch_opts).await
@@ -750,7 +751,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
     };
 
     for leaf in &leaves {
-        let template = match ctx.templates.get(&leaf.entity_type) {
+        let template = match templates.get(&leaf.entity_type) {
             Some(t) => t,
             None => continue,
         };
@@ -776,7 +777,7 @@ pub async fn ingest(ctx: &IngestContext, source_path: &Path) -> Result<IngestRes
                 context_at: &leaf.context_at,
                 source: &body,
             };
-            let p3_prompt = prompt::build_pass3(&ctx.rules, &ctx.templates, p3_params)?;
+            let p3_prompt = prompt::build_pass3(&ctx.rules, &templates, p3_params)?;
             let mut p3_opts = InferOpts::from_settings(&ctx.config.llm.extraction);
             p3_opts.json_mode = true;
             let p3_raw = llm.infer(&p3_prompt, p3_opts).await

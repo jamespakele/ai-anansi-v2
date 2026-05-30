@@ -205,7 +205,7 @@ mod tests {
     }
 
     fn load_templates() -> TemplateRegistry {
-        TemplateRegistry::load(&manifest_dir().join("templates")).expect("load templates")
+        TemplateRegistry::load(&manifest_dir().join("llm").join("plugins").join("anansi.plugin").join("references").join("templates")).expect("load templates")
     }
 
     fn load_rules() -> RuleRegistry {
