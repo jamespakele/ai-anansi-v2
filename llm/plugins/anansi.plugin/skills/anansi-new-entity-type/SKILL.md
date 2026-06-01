@@ -117,15 +117,19 @@ confirmation or edits before writing to disk.
 The database is the shared communication channel between Claude Cowork and the
 Anansi server. Templates are stored as `anansi_config` notes.
 
-1. **Store the template via MCP** — call `anansi_capture` (or `anansi_update_note`) to
-   create/update the note:
+1. **Store the template via MCP** — call `anansi_capture` with these arguments:
    - `entity_type: "anansi_config"`
    - `name: "Template: <new_entity_type>"`
    - `match_key: "anansi_config:template:<new_entity_type>"`
    - `content: <full template markdown>` (the entire template with YAML frontmatter,
      `%%` field blocks, and body)
    - `lede: "Template definition for entity type '<new_entity_type>'"`
-   - `merge_category: "pure_atomic"`
+
+   > **Why `match_key` is required:** The name normalizer collapses colons to
+   > hyphens, so without the override it would produce
+   > `anansi_config:template-<type>` instead of the `anansi_config:template:<type>`
+   > prefix the template registry expects. The `match_key` parameter is only
+   > honored when `entity_type` is `anansi_config`.
 
 2. **Hot-reload the server registry** — call `anansi_reload_templates` to make the
    new entity type immediately available. The server reads the template from the
@@ -203,7 +207,12 @@ Filenames use kebab-case (e.g., `meeting-topic-discussion.md`).
 **Step 3–4:** Generate and confirm (same as before).
 
 **Step 5:** Store via MCP:
-1. Call `anansi_capture` with match_key `anansi_config:template:place`, content = full template markdown
+1. Call `anansi_capture` with:
+   - `entity_type: "anansi_config"`
+   - `name: "Template: place"`
+   - `match_key: "anansi_config:template:place"`
+   - `lede: "Template definition for entity type 'place'"`
+   - `content: <full template markdown>`
 2. Call `anansi_reload_templates` → server confirms it loaded the new template
 3. Call `anansi_list_entity_types` → verify `place` appears in the identity types
 
