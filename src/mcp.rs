@@ -332,6 +332,7 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                             "lede": { "type": "string", "description": "The single most important fact about this entity." },
                             "why": { "type": "string", "description": "Optional. Why this entity matters — one sentence of context." },
                             "content": { "type": "string", "description": "Optional. Additional details, bullet points, structured info." },
+                            "match_key": { "type": "string", "description": "Optional. Override the auto-computed match_key. Only honored for entity_type 'anansi_config' (e.g. 'anansi_config:template:place'). Ignored for all other entity types." },
                             "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." }
                         },
                         "required": ["entity_type", "name", "lede"]
@@ -1195,7 +1196,18 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
     let why = args.get("why").and_then(|v| v.as_str()).map(|s| s.to_string());
     let content = args.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    let match_key = db::match_key(&name, &entity_type);
+    // For anansi_config notes, allow an explicit match_key override so callers
+    // can produce keys like "anansi_config:template:place" that the name
+    // normalizer (which collapses colons to hyphens) cannot generate.
+    let match_key_override = args.get("match_key").and_then(|v| v.as_str());
+    let match_key = if entity_type == "anansi_config" {
+        match match_key_override {
+            Some(mk) if mk.starts_with("anansi_config:") => mk.to_string(),
+            _ => db::match_key(&name, &entity_type),
+        }
+    } else {
+        db::match_key(&name, &entity_type)
+    };
 
     // Check if note already exists
     let existing = db::find_note_by_match_key(&ctx.db, &match_key).await;
