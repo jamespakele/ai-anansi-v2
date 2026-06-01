@@ -9,7 +9,7 @@ description: >
   Each note conforms to its matching template in references/templates/. Output
   is one combined markdown file with --- delimited blocks, ready for ingestion
   via anansi_ingest_atomized. Empty-PA runs are first-class. The Varys pass
-  runs last and is conservative — zero whispers is valid. Triggers: "atomize
+  runs last and is conservative - zero whispers is valid. Triggers: "atomize
   the typed pipeline output", "smart brevity atomize this", "/sb-atomize",
   "/sb-atomize", "compress the typed entities", "run stage 3 on
   this source", "atomize the entities and run varys", "produce per-entity

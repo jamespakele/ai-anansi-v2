@@ -2,9 +2,9 @@
 name: anansi-recall
 description: >
   Read-only retrieval from the Anansi knowledge vault. Routes queries to the
-  right tool: named entity or match_key → anansi_get; concept or keyword
-  search → anansi_search + anansi_search_semantic; graph traversal → anansi_edges
-  or anansi_export_context; type/date listing → anansi_filter. Never writes.
+  right tool: named entity or match_key -> anansi_get; concept or keyword
+  search -> anansi_search + anansi_search_semantic; graph traversal -> anansi_edges
+  or anansi_export_context; type/date listing -> anansi_filter. Never writes.
   Use when James says "what do I know about X", "pull context on Y", "who is Z",
   "find notes about", "search anansi for", "what's in the vault about",
   "show me everything on", "recall X", "look up X in anansi", "/recall",

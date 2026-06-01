@@ -6,7 +6,7 @@ description: >
   named entity in the database, and appends the entity's lede / why /
   content underneath in TOC order. The outline becomes the recomposed
   file's TOC at the top; chapters build below it. Pure read-side from
-  the database — never modifies the vault, never re-atomizes, never
+  the database - never modifies the vault, never re-atomizes, never
   reads from disk artifacts. Input is a source identifier: slug,
   source_id, or source title. Output is markdown written to
   output/{slug}/{slug}-recompose.md. Use this when a source has been

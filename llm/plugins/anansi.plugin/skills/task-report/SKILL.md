@@ -4,14 +4,14 @@ description: >
   Generates James's daily task report from live TickTick state. ONE Things
   checked first: if a ONE Thing task with today's due date exists per context
   (dcs/iq/ai/me), it is read as-is; if not, synthesized from open tasks and
-  created in TickTick with today's due date — never re-generated if already set
+  created in TickTick with today's due date - never re-generated if already set
   today. Arena and Wu Wei render in Smart Brevity format (lede + why + go
   deeper). Zheng renders as lede only with waiting-on and due date. Radar is a
   flat list. Varys whispers attached to tasks appear inline. anykine does not
   get a ONE Thing. Triggers: "run task report", "generate my daily report",
   "/task-report", "what's on my plate today", "daily report", "task summary",
   "show my tasks", "morning report", "end of day report".
-argument-hint: "[optional: context filter — dcs|iq|ai|me|anykine|all (default: all)]"
+argument-hint: "[optional: context filter - dcs|iq|ai|me|anykine|all (default: all)]"
 ---
 
 # task-report

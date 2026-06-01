@@ -1,7 +1,7 @@
 ---
 name: anansi-digest
 description: >
-  DEPRECATED — superseded by anansi-recompose. The earlier disk-driven
+  DEPRECATED - superseded by anansi-recompose. The earlier disk-driven
   digest skill that read from output/{slug}/ artifacts has been replaced
   by anansi-recompose, which reads from the Anansi vault directly (the
   durable layer) so it works for any ingested source whether or not the

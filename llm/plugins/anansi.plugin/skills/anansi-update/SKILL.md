@@ -3,7 +3,7 @@ name: anansi-update
 description: >
   Updates an existing Anansi note in place. Retrieves the record by name or
   match_key, shows the current state, then writes updated field values back via
-  anansi_capture (COALESCE upsert — only supplied fields change; unmentioned
+  anansi_capture (COALESCE upsert - only supplied fields change; unmentioned
   fields are preserved). Supports partial updates: the user only needs to
   provide what changed. Use when James says "update [entity]", "change [field]
   on [name]", "edit this note", "fix the lede for [name]", "add [field] to

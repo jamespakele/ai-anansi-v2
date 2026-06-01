@@ -6,17 +6,17 @@ description: >
   Resources file with canonical names plus template assignment, and a
   Resources TOC file containing Section 3 (Discussion), Section 4
   (Resources), and a Concepts list in para-toc decimal-numbered outline
-  format. Scoped solely to Resources — never extracts Projects or Areas
+  format. Scoped solely to Resources - never extracts Projects or Areas
   and never promotes a Resource into an Area on the basis of document
   centrality. Designed to run in parallel with the para-projects-areas
   skill on the same raw input; the two outputs merge cleanly at the
-  para-toc step. Template-driven typing — references/templates/ is the
+  para-toc step. Template-driven typing - references/templates/ is the
   single source of truth for entity types and identity_fields. Triggers
   include "identify resources", "type resources",
   "/para-resource-entities", "extract resources from", "what
   resources are in this", "type these entities", "find the people and
   organizations in", and "build the resources TOC for".
-argument-hint: "[any text — email, transcript, meeting notes, article, prose]"
+argument-hint: "[any text - email, transcript, meeting notes, article, prose]"
 ---
 
 # para-resource-entities

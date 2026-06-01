@@ -3,10 +3,10 @@ name: anansi-ingest-file
 description: >
   Sends a raw document to the Anansi server-side inbox pipeline. Prefers
   direct file upload via curl (calls anansi_get_upload_url + bash) when a
-  local file path is given — faster and avoids passing large content through
+  local file path is given - faster and avoids passing large content through
   MCP. Falls back to anansi_ingest_file with content string for pasted text
   or when bash is unavailable. The server runs the full pipeline:
-  para-projects-areas + para-resource-entities → sb-atomize → DB.
+  para-projects-areas + para-resource-entities -> sb-atomize -> DB.
   Triggers: "ingest this file", "send to inbox", "drop this in the inbox",
   "server-side ingest", "anansi-ingest-file", "/anansi-ingest-file",
   "queue this for anansi", "ingest this document", "upload to anansi inbox",

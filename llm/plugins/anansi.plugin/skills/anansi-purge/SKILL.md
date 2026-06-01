@@ -2,7 +2,7 @@
 name: anansi-purge
 description: >
   Deletes all notes, edges, and contributions from a specific Anansi import by
-  source_id, then removes the source record itself. Irreversible — use
+  source_id, then removes the source record itself. Irreversible - use
   anansi_search or Datasette to find the source_id before running. Invoke when
   the user says "purge this source", "delete this import", "remove source_id
   [uuid]", "/anansi-purge", "purge from anansi", "delete all notes from this

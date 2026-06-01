@@ -3,10 +3,10 @@ name: anansi-remember
 description: >
   Single entry point for committing anything to the Anansi knowledge base.
   Routes automatically across three paths: (A) single named entity or quick
-  note → anansi-atom; (B) multi-entity raw text or document → para-process →
-  sb-atomize → anansi_ingest_atomized; (C) already-atomized
-  content → anansi_ingest_atomized directly. The server parses the
-  atomized blocks and maps lede / why / content per entity type — never
+  note -> anansi-atom; (B) multi-entity raw text or document -> para-process ->
+  sb-atomize -> anansi_ingest_atomized; (C) already-atomized
+  content -> anansi_ingest_atomized directly. The server parses the
+  atomized blocks and maps lede / why / content per entity type - never
   parse blocks in the skill. The user never picks a path. Triggers:
   "remember this", "remember [file]", "remember [name]", "remember that
   [X] is [Y]", "send to anansi", "ingest this", "commit to anansi", "save
