@@ -249,8 +249,4 @@ When `remember` is invoked immediately after a `para-process` →
 
 Renamed from `r2-remember`, with the same three-path routing and the same
 server-side ingest tool. URL extraction (YouTube, articles) now lives in
-`r2v2:r2-remember`, which calls this skill after extraction is done. The
-server parses the atomized block set, applies the per-type field mapping
-internally, creates the outline note, and writes hierarchy edges. The skill
-stays out of the parsing business so field-mapping bugs can't happen on the
-client side.
+`r2v2:r2-remember`, which calls this skill after extraction 

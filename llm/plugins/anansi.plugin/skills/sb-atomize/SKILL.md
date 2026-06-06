@@ -498,13 +498,3 @@ See `references/design-notes.md` for the full rationale. Summary:
 
 ---
 
-## Worked example
-
-A full worked example against `output/broadband-hui/` is in `references/example-broadband-hui.md`. It atomizes:
-
-- Section 3.2 (DHHL Use & Adoption RFP discussion)
-- Section 4.8 (person:jaren-dhhl)
-- Section 5 concept `#use-and-adoption`
-- One Varys whisper drawn from the transcript that did not surface as an upstream entity
-
-Read it after this SKILL.md — it shows template adherence, Smart Brevity rules, edge slugs, metadata threading, and the Varys format under hard caps.

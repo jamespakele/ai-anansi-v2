@@ -68,5 +68,4 @@ Call `anansi_purge` with:
 * All notes, edges, and contributions removed.
 ```
 
-If the call returns an error, show it clearly and do not retry without the
-user's instruction.
+If the call returns an er

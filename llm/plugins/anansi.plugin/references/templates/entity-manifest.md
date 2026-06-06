@@ -41,9 +41,3 @@ description: PARA band this manifest indexes — "projects" or "areas"
 %%
 field: generated_at
 description: ISO-8601 timestamp of the last reconcile
-%%
-# {{name}}
-
-## Contents
-
-## 1. {{band}}

@@ -37,4 +37,4 @@ EXPOSE 3738
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD curl -f http://localhost:3738/health || exit 1
 
-CMD ["anansi2", "serve", "--root", "/data"]
+CMD ["anansi2", "se

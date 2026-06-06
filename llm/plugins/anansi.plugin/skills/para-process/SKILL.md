@@ -220,8 +220,4 @@ are the deliverable.
 
 - **File path not found** — stop. Ask the user to confirm the path.
 - **Pasted input is empty** — stop. Nothing to process.
-- **Sub-skill failure** — surface the sub-skill's error verbatim. Do not
-  fabricate a partial set of outputs.
-- **`source_id` mismatch between the two passes** — re-run with the
-  precomputed values explicitly passed through. If still mismatched,
-  fail and report.
+- **Sub-skill failure** — surface the sub-skill

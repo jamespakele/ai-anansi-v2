@@ -2078,24 +2078,4 @@ async fn tool_reload_templates(state: McpState, id: Value) -> Json<Value> {
     // Acquire write lock on the template registry
     let mut registry = state.ctx.templates.write().await;
 
-    match registry.load_from_db(&state.ctx.db).await {
-        Ok(loaded) => {
-            let total = registry.all_entity_types().len();
-            eprintln!("[anansi2] template registry reloaded: {loaded} from DB, {total} total");
-            json_rpc_ok(
-                id,
-                json!({
-                    "content": [{
-                        "type": "text",
-                        "text": serde_json::to_string(&json!({
-                            "reloaded_from_db": loaded,
-                            "total_entity_types": total,
-                            "status": "ok"
-                        })).unwrap_or_default()
-                    }]
-                }),
-            )
-        }
-        Err(e) => json_rpc_err(id, -32000, &format!("Failed to reload templates: {e}")),
-    }
-}
+    match registry.load_from_

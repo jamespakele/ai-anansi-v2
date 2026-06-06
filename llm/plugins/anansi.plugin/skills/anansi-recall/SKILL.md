@@ -86,5 +86,4 @@ Format depends on result count and type.
 ## Hard Rules
 
 - Never call `anansi_capture`, `anansi_ingest_*`, `anansi_relate`, or `anansi_purge`. This skill is read-only.
-- Never fabricate vault content. If a note doesn't exist, say so.
-- Never call `anansi_embed` — that's a maintenance operation, not retrieval.
+- Never fabricate vault content. If a note doesn't exist,

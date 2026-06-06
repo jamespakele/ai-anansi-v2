@@ -170,6 +170,4 @@ that would overwrite all existing content fields with just the one line.
 | Multiple search matches | List all candidates, ask user to confirm before proceeding |
 | User wants to add a NEW content field | Add the new field to the existing content block, keep everything else |
 | User wants to clear a field | Set it explicitly to empty string (`""`) or a null-equivalent replacement |
-| Entity type unknown from recall | Ask: "What type is this — person, org, project, area, event, or note?" |
-| `anansi_capture` not available | Tell the user. Show the payload they'd need. |
-| `anansi_capture` returns error | Show the error, do not retry silently. |
+| Entity type unknown from recall | Ask: "What type is this — person, org, project, area, event

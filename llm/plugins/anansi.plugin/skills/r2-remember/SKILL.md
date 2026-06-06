@@ -250,7 +250,4 @@ When `remember` is invoked immediately after a `para-process` →
 Replaces the legacy `anansi-remember` skill, with the same three-path
 routing but using the current server-side ingest tool. The server parses
 the atomized block set, applies the per-type field mapping internally
-(lede / why / content / edges per project / area / discussion / person /
-organization / note / whisper / event), creates the outline note, and
-writes hierarchy edges. The skill stays out of the parsing business so
-field-mapping bugs can't happen on the client side.
+(lede / why / 

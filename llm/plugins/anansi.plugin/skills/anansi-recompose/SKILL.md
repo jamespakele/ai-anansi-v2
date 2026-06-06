@@ -241,6 +241,4 @@ If `chapters_not_found > 0`, list each missing entry's address + name beneath th
 
 ## Why this skill exists
 
-The decomposed file (sb-atomize output) is the form the server ingests. It's not the form a human reads. The vault holds the canonical version of every entity from every source; the outline note holds the TOC structure. This skill joins them back into the readable artifact the source originally was — turning a stored source into a consumable one.
-
-The vault is backup memory. The recomposed file is what gets committed to human memory.
+The decomposed file (sb-atomize output) is the form the server ingests. It's not the form a human reads. The vault holds the canonical version of every entity from every source; the outline note ho

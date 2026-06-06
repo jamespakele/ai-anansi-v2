@@ -504,6 +504,4 @@ The word "container" is overloaded. Cowork uses `template_class: utility` for th
 
 ## Why this matters
 
-Adding a new entity_type to anansi is a small, repeatable schema-following task. Before this skill, the user (or future Claude) would re-derive the frontmatter shape, the field-block format, the body conventions every time. Now: describe the new type in one sentence, get a ready-to-drop-in file.
-
-Companion to `resource-typer` (which consumes templates as the type oracle) and `skill-description-tuner` (the other meta-tool in skill-builder.plugin). Together, the three skills make anansi's template-driven taxonomy ergonomic to extend.
+Adding a new entity_type to anan

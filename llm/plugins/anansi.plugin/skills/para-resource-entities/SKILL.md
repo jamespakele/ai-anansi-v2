@@ -325,12 +325,4 @@ Use the evidence verb to disambiguate. `Pakele said…` → person. `Pakele's ma
 
 ### Resource appears central to the document
 
-Centrality is not responsibility. The talk is still a Resource (typed `note`) even when the entire input is its transcript. See Example 2 in the spec — `note:why-sovereign-ai-matters` is correct for a transcript whose subject is sovereign AI infrastructure.
-
-### Two people share a first name
-
-Two `person:` entries. Disambiguate in the canonical name and slug (`person:james-pakele` vs `person:james-chen`).
-
-### No Resources found
-
-Both files are still produced. `resources-typed.md` has the `## Resources` heading foll
+Centrality is not responsibility. The talk is still a Resource (typed `note`) even when the entire input is its transcript. See Example 2 in the spec — `note:why-sovereign-ai-matters` is correct

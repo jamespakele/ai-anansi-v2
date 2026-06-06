@@ -196,6 +196,4 @@ Then present the full report inline.
 
 **Completed ONE Things remain visible.** Seeing ✓ is motivating. The completed ONE Thing rolls off only after the day changes.
 
-**Whispers are enrichment, not tasks.** They appear inline under the task they enrich — not in their own report section.
-
-**Report is per-day, not per-session.** Multiple triage runs in a day (email, meeting, Slack) all feed the same TickTick board. The report reflects the board — not the last source ingested.
+**Whispers are enrichment, not tasks.** They appear inline under the task they enrich — not in their own report sect

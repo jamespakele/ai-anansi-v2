@@ -222,14 +222,4 @@ Filenames use kebab-case (e.g., `meeting-topic-discussion.md`).
 
 ## Relationship to other skills
 
-- **scaffold-template** — this skill's output format matches scaffold-template's
-  schema. anansi-new-entity-type is the guided end-to-end version.
-- **para-resource-entities** — consumes identity templates at extraction time.
-  New identity types appear in its type oracle automatically after DB reload.
-- **sb-atomize** — consumes all templates during atomization. New types are
-  available to Pass 1 TOC generation and Pass 3 extraction after reload.
-- **anansi_list_entity_types** — the MCP tool this skill calls in Step 1 to
-  check for existing types.
-- **anansi_reload_templates** — the MCP tool this skill calls in Step 5 to
-  hot-reload the template registry after creating a new type.
-
+- **scaffold-template** — this skill's output format matches s

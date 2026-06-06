@@ -109,5 +109,4 @@ it in the report so the user has a handle to track the run.
 | Pipeline location | Server-side | Client-side (in-conversation) |
 | Intermediate output | None (opaque) | Atomized .md + TOC files on disk |
 | Speed | Fast drop | Slower; full pipeline visible |
-| Reviewability | None before ingest | Review atomized notes before ingest |
-| Best for | Large files, batches, fire-and-forget | When you want to verify what goes in |
+| Reviewability | None before ingest | Review atomized not

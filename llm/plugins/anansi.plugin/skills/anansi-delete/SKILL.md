@@ -209,7 +209,4 @@ Call: `anansi_archive_note`
 
 - Never hard-delete without explicit user confirmation in the chat.
 - Never hard-delete multiple notes in a single invocation — one note, one
-  confirmation, one call.
-- When ambiguous between hard delete and archive, **default to archive**.
-- Never call `anansi_purge` from this skill — that's a source-level bulk
-  operation handled by `anansi:anansi-purge`.
+  confirma

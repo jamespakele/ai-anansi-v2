@@ -20,4 +20,4 @@ This skill is superseded by **anansi-recompose**. The disk-driven digest path wa
 
 Load and execute `../anansi-recompose/SKILL.md`, passing the user's input verbatim. Return the recompose skill's output unchanged.
 
-That is the entire job of this skill — pure redirect.
+That is the entire job of this ski
