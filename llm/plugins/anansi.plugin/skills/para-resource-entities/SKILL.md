@@ -6,17 +6,17 @@ description: >
   Resources file with canonical names plus template assignment, and a
   Resources TOC file containing Section 3 (Discussion), Section 4
   (Resources), and a Concepts list in para-toc decimal-numbered outline
-  format. Scoped solely to Resources - never extracts Projects or Areas
+  format. Scoped solely to Resources — never extracts Projects or Areas
   and never promotes a Resource into an Area on the basis of document
   centrality. Designed to run in parallel with the para-projects-areas
   skill on the same raw input; the two outputs merge cleanly at the
-  para-toc step. Template-driven typing - references/templates/ is the
+  para-toc step. Template-driven typing — references/templates/ is the
   single source of truth for entity types and identity_fields. Triggers
   include "identify resources", "type resources",
   "/para-resource-entities", "extract resources from", "what
   resources are in this", "type these entities", "find the people and
   organizations in", and "build the resources TOC for".
-argument-hint: "[any text - email, transcript, meeting notes, article, prose]"
+argument-hint: "[any text — email, transcript, meeting notes, article, prose]"
 ---
 
 # para-resource-entities
@@ -325,4 +325,12 @@ Use the evidence verb to disambiguate. `Pakele said…` → person. `Pakele's ma
 
 ### Resource appears central to the document
 
-Centrality is not responsibility. The talk is still a Resource (typed `note`) even when the entire input is its transcript. See Example 2 in the spec — `note:why-sovereign-ai-matters` is correct
+Centrality is not responsibility. The talk is still a Resource (typed `note`) even when the entire input is its transcript. See Example 2 in the spec — `note:why-sovereign-ai-matters` is correct for a transcript whose subject is sovereign AI infrastructure.
+
+### Two people share a first name
+
+Two `person:` entries. Disambiguate in the canonical name and slug (`person:james-pakele` vs `person:james-chen`).
+
+### No Resources found
+
+Both files are still produced. `resources-typed.md` has the `## Resources` heading foll

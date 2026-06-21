@@ -3,10 +3,10 @@ name: anansi-remember
 description: >
   Single entry point for committing anything to the Anansi knowledge base.
   Routes automatically across three paths: (A) single named entity or quick
-  note -> anansi-atom; (B) multi-entity raw text or document -> para-process ->
-  sb-atomize -> anansi_ingest_atomized; (C) already-atomized
-  content -> anansi_ingest_atomized directly. The server parses the
-  atomized blocks and maps lede / why / content per entity type - never
+  note → anansi-atom; (B) multi-entity raw text or document → para-process →
+  sb-atomize → anansi_ingest_atomized; (C) already-atomized
+  content → anansi_ingest_atomized directly. The server parses the
+  atomized blocks and maps lede / why / content per entity type — never
   parse blocks in the skill. The user never picks a path. Triggers:
   "remember this", "remember [file]", "remember [name]", "remember that
   [X] is [Y]", "send to anansi", "ingest this", "commit to anansi", "save
@@ -249,4 +249,8 @@ When `remember` is invoked immediately after a `para-process` →
 
 Renamed from `r2-remember`, with the same three-path routing and the same
 server-side ingest tool. URL extraction (YouTube, articles) now lives in
-`r2v2:r2-remember`, which calls this skill after extraction 
+`r2v2:r2-remember`, which calls this skill after extraction is done. The
+server parses the atomized block set, applies the per-type field mapping
+internally, creates the outline note, and writes hierarchy edges. The skill
+stays out of the parsing business so field-mapping bugs can't happen on the
+client side.

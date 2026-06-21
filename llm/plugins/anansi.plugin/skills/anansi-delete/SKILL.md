@@ -1,9 +1,9 @@
 ---
 name: anansi-delete
 description: >
-  Removes or archives a single Anansi note by ID. Two modes: (1) hard delete -
+  Removes or archives a single Anansi note by ID. Two modes: (1) hard delete —
   permanently removes the note via anansi_delete_note, irreversible; (2) archive
-  - soft-removes via anansi_archive_note, reversible; pass restore: true to
+  — soft-removes via anansi_archive_note, reversible; pass restore: true to
   unarchive. Always looks up the record first to confirm identity and surface the
   note ID before acting. Use when James says "delete [entity]", "remove this
   note", "archive [name]", "unarchive [name]", "restore [entity]",
@@ -209,4 +209,7 @@ Call: `anansi_archive_note`
 
 - Never hard-delete without explicit user confirmation in the chat.
 - Never hard-delete multiple notes in a single invocation — one note, one
-  confirma
+  confirmation, one call.
+- When ambiguous between hard delete and archive, **default to archive**.
+- Never call `anansi_purge` from this skill — that's a source-level bulk
+  operation handled by `anansi:anansi-purge`.
