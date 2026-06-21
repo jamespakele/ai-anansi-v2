@@ -293,14 +293,6 @@ No LLM calls. Direct upsert via match_key.
 | **para-projects-areas** | Stage 1a | Extracts Projects and Areas from source |
 | **para-resource-entities** | Stage 1b | Extracts Resources and typed entities from source |
 | **sb-atomize** | Stage 2 | Merges Stage 1 outputs into Smart Brevity atomic blocks |
-| **inbox-triage** | Stage 4 (optional) | Extracts action items → TickTick tasks |
-
-### Other skills
-
-| Skill | What it does |
-|-------|--------------|
-| **r2-remember** | Alias for anansi-remember |
-| **task-report** | Generates daily task report from TickTick state |
 
 ---
 

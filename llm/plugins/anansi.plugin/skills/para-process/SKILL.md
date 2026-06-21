@@ -10,7 +10,7 @@ description: >
   generated_at so the merge step can rejoin them. When the input is
   pasted text rather than a file, the raw text is first persisted to
   source.txt in the output directory so every later stage has a stable
-  on-disk source to point at. Pure orchestrator - never inlines or
+  on-disk source to point at. Pure orchestrator — never inlines or
   re-implements the sub-skills. Triggers: "para-process [file]",
   "/para-process", "run para-process on this", "stage 1 atomize this",
   "PA + Resources extraction on this", "run para-projects-areas and
@@ -220,4 +220,8 @@ are the deliverable.
 
 - **File path not found** — stop. Ask the user to confirm the path.
 - **Pasted input is empty** — stop. Nothing to process.
-- **Sub-skill failure** — surface the sub-skill
+- **Sub-skill failure** — surface the sub-skill's error verbatim. Do not
+  fabricate a partial set of outputs.
+- **`source_id` mismatch between the two passes** — re-run with the
+  precomputed values explicitly passed through. If still mismatched,
+  fail and report.

@@ -2,8 +2,8 @@
 name: scaffold-template
 description: >
   Generate a properly-shaped anansi entity template file from a description
-  of what the entity-type represents. Knows the schema - YAML frontmatter +
-  `%%` field blocks + body template - the four template classes (identity,
+  of what the entity-type represents. Knows the schema — YAML frontmatter +
+  `%%` field blocks + body template — the four template classes (identity,
   content_unit, source, utility), the three merge strategies (pure_atomic,
   container, source_bound), and the conventional field shapes per class.
   Returns a ready-to-drop-in `entity-[type].md` (or family-prefixed file)
@@ -504,4 +504,6 @@ The word "container" is overloaded. Cowork uses `template_class: utility` for th
 
 ## Why this matters
 
-Adding a new entity_type to anan
+Adding a new entity_type to anansi is a small, repeatable schema-following task. Before this skill, the user (or future Claude) would re-derive the frontmatter shape, the field-block format, the body conventions every time. Now: describe the new type in one sentence, get a ready-to-drop-in file.
+
+Companion to `resource-typer` (which consumes templates as the type oracle) and `skill-description-tuner` (the other meta-tool in skill-builder.plugin). Together, the three skills make anansi's template-driven taxonomy ergonomic to extend.
