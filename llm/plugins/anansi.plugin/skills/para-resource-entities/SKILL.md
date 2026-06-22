@@ -333,4 +333,10 @@ Two `person:` entries. Disambiguate in the canonical name and slug (`person:jame
 
 ### No Resources found
 
-Both files are still produced. `resources-typed.md` has the `## Resources` heading foll
+Both files are still produced. `resources-typed.md` has the `## Resources` heading followed by `_(no Resources found)_`. `resources-toc.md` keeps the `## 4. Resources` heading with `<!-- no Resources found -->` directly below it. Both files carry frontmatter with `source_id` and `generated_at` so downstream code can distinguish "skill ran, found nothing" from "skill failed."
+
+---
+
+## Why this matters
+
+Resources are the reference tier of PARA — things the user is interested in but not responsible for. People, organizations, books, concepts, referenced documents: these are the nodes that give the vault its connective tissue. Unlike Projects and Areas, where a phantom entry clutters an active-commitment list and erodes trust, a phantom Resource is low-cost — it sits in the vault until a merge or purge cleans it up. The cost asymmetry flips: a *missed* Resource is a broken edge in the knowledge graph, a person who was in the room but invisible, a book that shaped the thinking but left no trace. So this skill leans toward extraction when ambiguous. When the evidence is thin but the named thing is clearly present in the source, emit it at medium confidence with the evidence quote and let the vault's merge logic decide. The two-file output (typed fields + TOC, joined by `source_id`) pairs symmetrically with `para-projects-areas` so the full PARA scan is three focused passes instead of one omnibus reduction — PA discovery with a precision filter, Resource discovery with a recall filter, then smart-brevity compression. Field-set alignment with the canonical anansi entity templates means the skill's emitted blocks slot directly into the vault without a translation layer. Reach for it when recall is the failure mode you're tuning against, and accept that a medium-confidence entry is sometimes more useful than no entry at all.
