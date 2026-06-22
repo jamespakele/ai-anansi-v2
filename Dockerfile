@@ -10,7 +10,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY build.rs ./build.rs
 COPY src ./src
 COPY migrations ./migrations
-COPY templates ./templates
+COPY llm/plugins/anansi.plugin/references/templates ./llm/plugins/anansi.plugin/references/templates
 COPY %Rules ./%Rules
 COPY anansi.toml.example ./anansi.toml.example
 
@@ -30,7 +30,7 @@ WORKDIR /app
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/anansi2 /usr/local/bin/anansi2
 # Bake in the skill files so the inbox pipeline works out of the box.
 # Skills live at /app/skills — override via skills_dir in anansi.toml if needed.
-COPY skills/ /app/skills/
+COPY llm/plugins/anansi.plugin/skills/ /app/skills/
 
 EXPOSE 3738
 
