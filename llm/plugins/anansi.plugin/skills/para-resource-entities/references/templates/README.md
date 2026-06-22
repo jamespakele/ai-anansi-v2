@@ -252,4 +252,5 @@ Each entity-type's hashes should collapse to a single value across all locations
 1. **Edit only the canonical copy** at `plugins/anansi.plugin/references/templates/`. The mirrors are read-only from each skill's perspective.
 2. **Bump `template_version`** in the frontmatter. Use the convention: minor bump for additive field changes (new optional field, new `sources:` key); major bump for breaking changes (renamed required field, changed merge_strategy).
 3. **Update this README's per-template section** if the change is structurally significant (new required field, semantic shift, citation update).
-4. **Re-sync the mirrors:*
+4. **Re-sync the mirrors:** copy the updated template to every skill's `references/templates/` directory. Verify with `sha256sum` as described above — each entity-type's hash should collapse to a single value across all locations.
+5. **Commit** the canonical copy, all mirrors, and this README in one commit so the repo never holds a partial sync.

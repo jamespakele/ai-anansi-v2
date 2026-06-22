@@ -231,4 +231,32 @@ When confidence is medium or low, add a comment line in the typed file naming wh
 
 ## Worked walkthrough
 
-Source line: *"Just got off a call with Sarah Chen at Anthropic about their MCP rollout. She me
+Source line: *"Just got off a call with Sarah Chen at Anthropic about their MCP rollout. She mentioned the new Claude Skills spec — we should look at it before next week's review."*
+
+**Candidate 1: Sarah Chen**
+
+- Step 0: Not a Project (no outcome/deadline/active commitment from the user). Not an Area (no standard to maintain). Proceed.
+- Step 1: Name shape is first+last (`Sarah Chen`). Action verb nearby (`got off a call with`). Affiliation stated (`at Anthropic`). All strong person signals present. → `person:sarah-chen` at **high** confidence.
+- Identity fields: `name=Sarah Chen`; `met_via=via MCP rollout sync call` (inferred from context).
+
+**Candidate 2: Anthropic**
+
+- Step 0: Not a Project or Area. Proceed.
+- Step 1: Not a person — no personal-name shape.
+- Step 2: Capitalized proper noun. Institutional framing (`at Anthropic`). Possessive form (`their MCP rollout`). → `organization:anthropic` at **high** confidence.
+- Identity fields: `name=Anthropic`.
+
+**Candidate 3: Claude Skills spec**
+
+- Step 0: Not a Project or Area. Proceed.
+- Step 1: Not a person.
+- Step 2: Not an organization — no institutional framing, no employees referenced.
+- Step 3: Not a book — no title-as-book signals, no author attribution, no bibliographic framing.
+- Step 4: Substantial named subject. Not a person, org, or book. Apply `(spec)` disambiguator per naming conventions. → `note:claude-skills-spec` at **medium** confidence (single mention, no corroborating signals).
+- Identity fields: `name=Claude Skills Spec (spec)`.
+
+**Dropped: "MCP rollout"**
+
+- Mentioned in passing as a topic, not framed as a thing the user is tracking as its own page. Emitted as a concept tag (`#mcp`) rather than a Resource entry. Same for `Claude Skills` as a concept (`#claude-skills`) — invoked alongside the spec, not as a standalone entity.
+
+**Step 6 — Confidence calibration:** Sarah Chen and Anthropic are both high (named explicitly with affiliation, multiple corroborating signals, re-identification robust). Claude Skills Spec is medium (single mention, no corroborating signals, re-identification probable but fragile). No low-confidence entries in this example.

@@ -179,4 +179,8 @@ When the bare name could plausibly be confused for a different entity type or fo
 
 ### When NOT to use a disambiguator
 
-- The name is already clearly a thing of its kind: `Tao Te Ching`, `Bushido`, `Honolulu Star-Advertiser`, `Sequoia Cap
+- The name is already clearly a thing of its kind: `Tao Te Ching`, `Bushido`, `Honolulu Star-Advertiser`, `Sequoia Capital`.
+- The entity type prefix already carries the disambiguation — `book:` never gets `(book)`, `person:` never gets `(person)`.
+- The name is a unique proper noun with no plausible confusion — `Kahoolawe`, `Anthropic`.
+
+When in doubt, add the disambiguator. The cost of a redundant parenthetical is low; the cost of a misidentified entity is a broken edge in the vault.
