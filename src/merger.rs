@@ -1,24 +1,40 @@
-use std::collections::HashMap;
 use anyhow::Result;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::db::{
-    self, DbPool, NoteRecord, SourceContributionRecord,
-    find_note_by_match_key, insert_note, insert_contribution,
-    find_contribution_by_source_toc, now_rfc3339,
+    self, find_contribution_by_source_toc, find_note_by_match_key, insert_contribution,
+    insert_note, now_rfc3339, DbPool, NoteRecord, SourceContributionRecord,
 };
-use crate::template::{Template, RosterSection};
+use crate::template::Template;
 use crate::vault::Vault;
 
 pub enum MergeOutcome {
-    Created { note_id: String },
-    FilledFields { note_id: String, filled: Vec<String> },
-    AddedRoster { note_id: String, section: String, rows_added: usize },
-    Regenerated { note_id: String },
-    Conflict { note_id: String, field: String, existing: String, new: String },
-    Noop { note_id: String },
+    Created {
+        note_id: String,
+    },
+    FilledFields {
+        note_id: String,
+        filled: Vec<String>,
+    },
+    AddedRoster {
+        note_id: String,
+        section: String,
+        rows_added: usize,
+    },
+    Regenerated {
+        note_id: String,
+    },
+    Conflict {
+        note_id: String,
+        field: String,
+        existing: String,
+        new: String,
+    },
+    Noop {
+        note_id: String,
+    },
 }
-
 
 fn new_contribution(
     source_id: &str,
@@ -56,17 +72,25 @@ pub async fn merge_pure_atomic(
         None => {
             insert_note(pool, &note_proto).await?;
             let contrib = new_contribution(
-                source_id, &note_proto.id, toc_address, hint, "created", None,
+                source_id,
+                &note_proto.id,
+                toc_address,
+                hint,
+                "created",
+                None,
             );
             insert_contribution(pool, &contrib).await?;
-            Ok(MergeOutcome::Created { note_id: note_proto.id })
+            Ok(MergeOutcome::Created {
+                note_id: note_proto.id,
+            })
         }
         Some(existing) => {
-            let contrib = new_contribution(
-                source_id, &existing.id, toc_address, hint, "noop", None,
-            );
+            let contrib =
+                new_contribution(source_id, &existing.id, toc_address, hint, "noop", None);
             let _ = try_insert_contribution(pool, &contrib).await;
-            Ok(MergeOutcome::Noop { note_id: existing.id })
+            Ok(MergeOutcome::Noop {
+                note_id: existing.id,
+            })
         }
     }
 }
@@ -110,90 +134,28 @@ pub async fn merge_container(
         None => {
             insert_note(pool, &note_proto).await?;
             let contrib = new_contribution(
-                source_id, &note_proto.id, toc_address, hint, "created", None,
+                source_id,
+                &note_proto.id,
+                toc_address,
+                hint,
+                "created",
+                None,
             );
             insert_contribution(pool, &contrib).await?;
-            Ok(MergeOutcome::Created { note_id: note_proto.id })
+            Ok(MergeOutcome::Created {
+                note_id: note_proto.id,
+            })
         }
         Some(existing) => {
-            let contrib = new_contribution(
-                source_id, &existing.id, toc_address, hint, "noop", None,
-            );
+            let contrib =
+                new_contribution(source_id, &existing.id, toc_address, hint, "noop", None);
             let _ = try_insert_contribution(pool, &contrib).await;
-            Ok(MergeOutcome::Noop { note_id: existing.id })
+            Ok(MergeOutcome::Noop {
+                note_id: existing.id,
+            })
         }
     }
 }
-
-/// Render a single row's text from row_format + field map.
-fn render_row(row_format: &str, row: &HashMap<String, String>) -> String {
-    let mut line = row_format.to_string();
-    for (k, v) in row {
-        line = line.replace(&format!("{{{k}}}"), v);
-    }
-    line
-}
-
-/// Extract existing roster lines (raw text after "- ") from file content.
-fn parse_roster_lines_from_file(content: &str, section: &RosterSection) -> Vec<String> {
-    let heading = format!("## {}", section.render_as);
-    let mut lines = Vec::new();
-    let mut in_section = false;
-
-    for line in content.lines() {
-        if line.trim() == heading.trim() {
-            in_section = true;
-            continue;
-        }
-        if in_section {
-            if line.starts_with("## ") {
-                break;
-            }
-            if let Some(row_text) = line.strip_prefix("- ") {
-                lines.push(row_text.to_string());
-            }
-        }
-    }
-    lines
-}
-
-/// Strip roster section headings and their content from a body string.
-fn strip_roster_sections(body: &str, sections: &std::collections::HashMap<String, RosterSection>) -> String {
-    let headings: Vec<String> = sections.values().map(|s| format!("## {}", s.render_as)).collect();
-    let mut result = String::new();
-    let mut skip = false;
-
-    for line in body.lines() {
-        if headings.iter().any(|h| line.trim() == h.trim()) {
-            skip = true;
-            continue;
-        }
-        if skip && line.starts_with("## ") && !headings.iter().any(|h| line.trim() == h.trim()) {
-            skip = false;
-        }
-        if !skip {
-            result.push_str(line);
-            result.push('\n');
-        }
-    }
-    result.trim_end().to_string()
-}
-
-/// Render a roster section where rows may be either structured (HashMap with fields)
-/// or raw text (HashMap with "_row" key).
-fn render_roster_section_mixed(section: &RosterSection, rows: &[HashMap<String, String>]) -> String {
-    let mut out = format!("## {}\n\n", section.render_as);
-    for row in rows {
-        if let Some(raw) = row.get("_row") {
-            out.push_str(&format!("- {raw}\n"));
-        } else {
-            let rendered = render_row(&section.row_format, row);
-            out.push_str(&format!("- {rendered}\n"));
-        }
-    }
-    out
-}
-
 
 pub async fn merge_source_bound(
     pool: &DbPool,
@@ -212,27 +174,55 @@ pub async fn merge_source_bound(
         None => {
             insert_note(pool, &note_proto).await?;
             let contrib = new_contribution(
-                source_id, &note_proto.id, Some(toc_address), hint, "created", None,
+                source_id,
+                &note_proto.id,
+                Some(toc_address),
+                hint,
+                "created",
+                None,
             );
             insert_contribution(pool, &contrib).await?;
-            Ok(MergeOutcome::Created { note_id: note_proto.id })
+            Ok(MergeOutcome::Created {
+                note_id: note_proto.id,
+            })
         }
         Some((_, existing_note)) => {
             let prior_source_rec = db::get_source(pool, lookup_source_id).await?;
-            let prior_hash = prior_source_rec.as_ref().map(|s| s.content_hash.as_str()).unwrap_or("");
+            let prior_hash = prior_source_rec
+                .as_ref()
+                .map(|s| s.content_hash.as_str())
+                .unwrap_or("");
             if prior_hash == content_hash {
-                let contrib = new_contribution(source_id, &existing_note.id, Some(toc_address), hint, "noop", None);
+                let contrib = new_contribution(
+                    source_id,
+                    &existing_note.id,
+                    Some(toc_address),
+                    hint,
+                    "noop",
+                    None,
+                );
                 let _ = try_insert_contribution(pool, &contrib).await;
-                Ok(MergeOutcome::Noop { note_id: existing_note.id })
+                Ok(MergeOutcome::Noop {
+                    note_id: existing_note.id,
+                })
             } else {
                 sqlx::query("UPDATE notes SET updated_at = $1 WHERE id = $2")
                     .bind(now_rfc3339())
                     .bind(&existing_note.id)
                     .execute(pool)
                     .await?;
-                let contrib = new_contribution(source_id, &existing_note.id, Some(toc_address), hint, "regenerated", None);
+                let contrib = new_contribution(
+                    source_id,
+                    &existing_note.id,
+                    Some(toc_address),
+                    hint,
+                    "regenerated",
+                    None,
+                );
                 let _ = try_insert_contribution(pool, &contrib).await;
-                Ok(MergeOutcome::Regenerated { note_id: existing_note.id })
+                Ok(MergeOutcome::Regenerated {
+                    note_id: existing_note.id,
+                })
             }
         }
     }
@@ -241,9 +231,9 @@ pub async fn merge_source_bound(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
-    use crate::db::{connect_and_migrate, insert_source, SourceRecord, now_rfc3339, match_key};
+    use crate::db::{connect_and_migrate, insert_source, match_key, now_rfc3339, SourceRecord};
     use crate::vault::Vault;
+    use std::path::Path;
 
     async fn setup_db() -> Option<DbPool> {
         let url = std::env::var("DATABASE_URL").ok()?;
@@ -271,7 +261,12 @@ mod tests {
         }
     }
 
-    fn make_note_proto(_vault: &Vault, name: &str, entity_type: &str, source_id: &str) -> NoteRecord {
+    fn make_note_proto(
+        _vault: &Vault,
+        name: &str,
+        entity_type: &str,
+        source_id: &str,
+    ) -> NoteRecord {
         let mk = match_key(name, entity_type);
         NoteRecord {
             id: Uuid::new_v4().to_string(),
@@ -308,7 +303,14 @@ mod tests {
         fields.insert("summary".to_string(), "A test person.".to_string());
 
         let outcome = merge_pure_atomic(
-            &pool, &vault, note, &fields, "# Alice Smith\n", &source.id, Some("1.1"), None,
+            &pool,
+            &vault,
+            note,
+            &fields,
+            "# Alice Smith\n",
+            &source.id,
+            Some("1.1"),
+            None,
         )
         .await
         .unwrap();
@@ -339,8 +341,14 @@ mod tests {
         fields1.insert("summary".to_string(), "A test person.".to_string());
 
         merge_pure_atomic(
-            &pool, &vault, note.clone(), &fields1, "# Bob Jones\n",
-            &source.id, Some("1.1"), None,
+            &pool,
+            &vault,
+            note.clone(),
+            &fields1,
+            "# Bob Jones\n",
+            &source.id,
+            Some("1.1"),
+            None,
         )
         .await
         .unwrap();
@@ -359,15 +367,24 @@ mod tests {
         insert_source(&pool, &source2).await.unwrap();
 
         let outcome = merge_pure_atomic(
-            &pool, &vault, note2, &fields2, "# Bob Jones\n",
-            &source2.id, Some("1.1"), None,
+            &pool,
+            &vault,
+            note2,
+            &fields2,
+            "# Bob Jones\n",
+            &source2.id,
+            Some("1.1"),
+            None,
         )
         .await
         .unwrap();
 
         match outcome {
             MergeOutcome::Noop { .. } => {}
-            other => panic!("expected Noop (fill logic deferred), got {:?}", std::mem::discriminant(&other)),
+            other => panic!(
+                "expected Noop (fill logic deferred), got {:?}",
+                std::mem::discriminant(&other)
+            ),
         }
     }
 
@@ -388,8 +405,14 @@ mod tests {
         fields1.insert("summary".to_string(), "Summary A.".to_string());
 
         merge_pure_atomic(
-            &pool, &vault, note.clone(), &fields1, "# Carol White\n",
-            &source.id, Some("1.1"), None,
+            &pool,
+            &vault,
+            note.clone(),
+            &fields1,
+            "# Carol White\n",
+            &source.id,
+            Some("1.1"),
+            None,
         )
         .await
         .unwrap();
@@ -407,15 +430,24 @@ mod tests {
         fields2.insert("summary".to_string(), "Summary B — different.".to_string());
 
         let outcome = merge_pure_atomic(
-            &pool, &vault, note2, &fields2, "# Carol White\n",
-            &source2.id, Some("1.1"), None,
+            &pool,
+            &vault,
+            note2,
+            &fields2,
+            "# Carol White\n",
+            &source2.id,
+            Some("1.1"),
+            None,
         )
         .await
         .unwrap();
 
         match outcome {
             MergeOutcome::Noop { .. } => {}
-            other => panic!("expected Noop (conflict logic deferred), got {:?}", std::mem::discriminant(&other)),
+            other => panic!(
+                "expected Noop (conflict logic deferred), got {:?}",
+                std::mem::discriminant(&other)
+            ),
         }
     }
 
@@ -435,8 +467,16 @@ mod tests {
 
         // First creation
         merge_source_bound(
-            &pool, &vault, note.clone(), &fields, "# Discussion\n",
-            &source.id, None, "1.1", None, &source.content_hash,
+            &pool,
+            &vault,
+            note.clone(),
+            &fields,
+            "# Discussion\n",
+            &source.id,
+            None,
+            "1.1",
+            None,
+            &source.content_hash,
         )
         .await
         .unwrap();
@@ -444,8 +484,16 @@ mod tests {
         // Second with same hash -> noop
         let note2 = make_note_proto(&vault, "Workshop Discussion 2", "context", &source.id);
         let outcome = merge_source_bound(
-            &pool, &vault, note2, &fields, "# Discussion\n",
-            &source.id, Some(&source.id), "1.1", None, &source.content_hash,
+            &pool,
+            &vault,
+            note2,
+            &fields,
+            "# Discussion\n",
+            &source.id,
+            Some(&source.id),
+            "1.1",
+            None,
+            &source.content_hash,
         )
         .await
         .unwrap();
@@ -472,8 +520,16 @@ mod tests {
 
         // First creation
         merge_source_bound(
-            &pool, &vault, note.clone(), &fields, "# Kickoff\n",
-            &source.id, None, "1.1", None, &source.content_hash,
+            &pool,
+            &vault,
+            note.clone(),
+            &fields,
+            "# Kickoff\n",
+            &source.id,
+            None,
+            "1.1",
+            None,
+            &source.content_hash,
         )
         .await
         .unwrap();
@@ -481,8 +537,16 @@ mod tests {
         // Second with different hash -> Regenerated
         let note2 = make_note_proto(&vault, "Project Kickoff 2", "event", &source.id);
         let outcome = merge_source_bound(
-            &pool, &vault, note2, &fields, "# Kickoff updated\n",
-            &source.id, Some(&source.id), "1.1", None, "different_hash_xyz",
+            &pool,
+            &vault,
+            note2,
+            &fields,
+            "# Kickoff updated\n",
+            &source.id,
+            Some(&source.id),
+            "1.1",
+            None,
+            "different_hash_xyz",
         )
         .await
         .unwrap();
@@ -491,7 +555,10 @@ mod tests {
             MergeOutcome::Regenerated { .. } => {}
             // Noop is also acceptable if the check falls to noop path
             MergeOutcome::Noop { .. } => {}
-            other => panic!("expected Regenerated or Noop, got {:?}", std::mem::discriminant(&other)),
+            other => panic!(
+                "expected Regenerated or Noop, got {:?}",
+                std::mem::discriminant(&other)
+            ),
         }
     }
 }

@@ -14,12 +14,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-
-use crate::db::{self, EdgeRecord, now_rfc3339};
+use crate::db::{self, now_rfc3339, EdgeRecord};
 use crate::embed;
 use crate::export;
-use crate::pipeline::{ingest, IngestContext};
-use crate::template::{TemplateClass, MergeStrategy};
+use crate::pipeline::IngestContext;
+use crate::template::{MergeStrategy, TemplateClass};
 
 // ---------------------------------------------------------------------------
 // MCP State
@@ -150,9 +149,12 @@ pub fn router(ctx: Arc<IngestContext>) -> Router {
     let protected = Router::new()
         .route("/", post(handle_json_rpc))
         .route("/exports/{filename}", get(handle_export_download))
-        .route("/upload/inbox",   post(handle_upload_inbox))
+        .route("/upload/inbox", post(handle_upload_inbox))
         .route("/upload/atomize", post(handle_upload_atomize))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .with_state(state.clone());
 
     Router::new()
@@ -500,7 +502,11 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         .unwrap_or_else(|| json!({}));
 
     match tool_name.as_str() {
-        "anansi_ingest" => json_rpc_err(id, -32000, "anansi_ingest is disabled. Use anansi_ingest_atomized instead."),
+        "anansi_ingest" => json_rpc_err(
+            id,
+            -32000,
+            "anansi_ingest is disabled. Use anansi_ingest_atomized instead.",
+        ),
         "anansi_search" => tool_search(state, id, args).await,
         "anansi_get" => tool_get(state, id, args).await,
         "anansi_filter" => tool_filter(state, id, args).await,
@@ -508,7 +514,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_relate" => tool_relate(state, id, args).await,
         "anansi_get_upload_url" => tool_get_upload_url(state, id, args).await,
         "anansi_ingest_atomized" => tool_ingest_atomized(state, id, args).await,
-        "anansi_ingest_file"     => tool_ingest_file(state, id, args).await,
+        "anansi_ingest_file" => tool_ingest_file(state, id, args).await,
         "anansi_capture" => tool_capture(state, id, args).await,
         "anansi_update_note" => tool_update_note(state, id, args).await,
         "anansi_purge" => tool_purge(state, id, args).await,
@@ -522,65 +528,6 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_reload_templates" => tool_reload_templates(state, id).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
-}
-
-// ---------------------------------------------------------------------------
-// anansi_ingest
-// ---------------------------------------------------------------------------
-
-async fn tool_ingest(state: McpState, id: Value, args: Value) -> Json<Value> {
-    let ctx = &state.ctx;
-
-    if ctx.config.server.read_only {
-        return json_rpc_err(id, -32000, "this anansi instance is read-only");
-    }
-
-    // Resolve the file path
-    let source_path = if let Some(sp) = args.get("source_path").and_then(|v| v.as_str()) {
-        std::path::PathBuf::from(sp)
-    } else if let (Some(content), Some(filename)) = (
-        args.get("content").and_then(|v| v.as_str()),
-        args.get("filename").and_then(|v| v.as_str()),
-    ) {
-        // Validate filename — reject any path traversal attempt
-        if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
-            return json_rpc_err(id, -32602, "filename must not contain path separators or '..'");
-        }
-        let dest = ctx.anansi_root.join(filename);
-        if let Err(e) = tokio::fs::write(&dest, content).await {
-            return json_rpc_err(id, -32000, &format!("Failed to write file: {e}"));
-        }
-        dest
-    } else {
-        return json_rpc_err(
-            id,
-            -32602,
-            "Provide source_path, or both content and filename",
-        );
-    };
-
-    let ctx_bg = Arc::clone(ctx);
-    let path_bg = source_path.clone();
-    tokio::spawn(async move {
-        match ingest(&ctx_bg, &path_bg).await {
-            Ok(r) => eprintln!("INFO: ingest complete: source_id={} notes_created={} duration_ms={}", r.source_id, r.atomic_notes_created, r.duration_ms),
-            Err(e) => eprintln!("ERROR: ingest failed for {}: {e:#}", path_bg.display()),
-        }
-    });
-
-    json_rpc_ok(
-        id,
-        json!({
-            "content": [{
-                "type": "text",
-                "text": serde_json::to_string(&json!({
-                    "status": "queued",
-                    "source_path": source_path.to_string_lossy(),
-                    "message": "Ingest started in background. Use anansi_search to check results in a few minutes."
-                })).unwrap_or_default()
-            }]
-        }),
-    )
 }
 
 // ---------------------------------------------------------------------------
@@ -643,8 +590,8 @@ async fn tool_search(state: McpState, id: Value, args: Value) -> Json<Value> {
 
 async fn tool_filter(state: McpState, id: Value, args: Value) -> Json<Value> {
     let entity_type = args.get("entity_type").and_then(|v| v.as_str());
-    let after       = args.get("after").and_then(|v| v.as_str());
-    let before      = args.get("before").and_then(|v| v.as_str());
+    let after = args.get("after").and_then(|v| v.as_str());
+    let before = args.get("before").and_then(|v| v.as_str());
     let limit = args
         .get("limit")
         .and_then(|v| v.as_i64())
@@ -656,18 +603,29 @@ async fn tool_filter(state: McpState, id: Value, args: Value) -> Json<Value> {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    match db::filter_notes(&state.ctx.db, entity_type, after, before, limit, include_archived).await {
+    match db::filter_notes(
+        &state.ctx.db,
+        entity_type,
+        after,
+        before,
+        limit,
+        include_archived,
+    )
+    .await
+    {
         Ok(notes) => {
             let items: Vec<Value> = notes
                 .into_iter()
-                .map(|n| json!({
-                    "id": n.id,
-                    "name": n.name,
-                    "entity_type": n.entity_type,
-                    "match_key": n.match_key,
-                    "lede": n.lede,
-                    "updated_at": n.updated_at,
-                }))
+                .map(|n| {
+                    json!({
+                        "id": n.id,
+                        "name": n.name,
+                        "entity_type": n.entity_type,
+                        "match_key": n.match_key,
+                        "lede": n.lede,
+                        "updated_at": n.updated_at,
+                    })
+                })
                 .collect();
             json_rpc_ok(
                 id,
@@ -860,7 +818,9 @@ async fn tool_edges(state: McpState, id: Value, args: Value) -> Json<Value> {
 async fn tool_relate(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_source(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) {
+        return err;
+    }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -878,7 +838,10 @@ async fn tool_relate(state: McpState, id: Value, args: Value) -> Json<Value> {
         Some(s) => s.to_string(),
         None => return json_rpc_err(id, -32602, "Missing required argument: edge_type"),
     };
-    let why = args.get("why").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let why = args
+        .get("why")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let edge = EdgeRecord {
         id: Uuid::new_v4().to_string(),
@@ -917,17 +880,23 @@ async fn tool_get_upload_url(state: McpState, id: Value, args: Value) -> Json<Va
     let ctx = &state.ctx;
 
     // Derive base URL: use configured public_url, or fall back to localhost:{port}
-    let base = ctx.config.server.public_url
+    let base = ctx
+        .config
+        .server
+        .public_url
         .as_deref()
         .map(|u| u.trim_end_matches('/').to_string())
         .unwrap_or_else(|| format!("http://localhost:{}", ctx.config.server.mcp_port));
 
-    let inbox_url   = format!("{base}/upload/inbox");
+    let inbox_url = format!("{base}/upload/inbox");
     let atomize_url = format!("{base}/upload/atomize");
 
-    let local_path = args.get("local_path").and_then(|v| v.as_str()).unwrap_or("{local_path}");
+    let local_path = args
+        .get("local_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("{local_path}");
 
-    let curl_inbox   = format!("curl -F 'file=@{local_path}' {inbox_url}");
+    let curl_inbox = format!("curl -F 'file=@{local_path}' {inbox_url}");
     let curl_atomize = format!("curl -F 'file=@{local_path}' {atomize_url}");
 
     json_rpc_ok(
@@ -954,7 +923,9 @@ async fn tool_get_upload_url(state: McpState, id: Value, args: Value) -> Json<Va
 async fn tool_ingest_file(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_source(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) {
+        return err;
+    }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -962,7 +933,7 @@ async fn tool_ingest_file(state: McpState, id: Value, args: Value) -> Json<Value
 
     let content = match args.get("content").and_then(|v| v.as_str()) {
         Some(c) => c.to_string(),
-        None    => return json_rpc_err(id, -32602, "Missing required argument: content"),
+        None => return json_rpc_err(id, -32602, "Missing required argument: content"),
     };
 
     // Use provided filename or generate capture-{YYYYMMDD-HHmmss}.md
@@ -970,7 +941,11 @@ async fn tool_ingest_file(state: McpState, id: Value, args: Value) -> Json<Value
         Some(f) => {
             // Safety: reject path traversal
             if f.contains('/') || f.contains('\\') || f.contains("..") {
-                return json_rpc_err(id, -32602, "filename must not contain path separators or '..'");
+                return json_rpc_err(
+                    id,
+                    -32602,
+                    "filename must not contain path separators or '..'",
+                );
             }
             f.to_string()
         }
@@ -1013,7 +988,9 @@ async fn tool_ingest_file(state: McpState, id: Value, args: Value) -> Json<Value
 async fn tool_ingest_atomized(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_source(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) {
+        return err;
+    }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -1074,7 +1051,9 @@ async fn tool_ingest_atomized(state: McpState, id: Value, args: Value) -> Json<V
 async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_source(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) {
+        return err;
+    }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -1098,18 +1077,20 @@ async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value
         None => return json_rpc_err(id, -32000, &format!("Note not found: {note_id}")),
     };
 
-    let current_name: String =
-        sqlx::query_scalar("SELECT name FROM notes WHERE id = $1")
-            .bind(&note_id)
-            .fetch_one(&ctx.db)
-            .await
-            .unwrap_or_default();
-
+    let current_name: String = sqlx::query_scalar("SELECT name FROM notes WHERE id = $1")
+        .bind(&note_id)
+        .fetch_one(&ctx.db)
+        .await
+        .unwrap_or_default();
 
     // Resolve new values — fall back to current if not provided
-    let new_entity_type = args.get("entity_type").and_then(|v| v.as_str())
+    let new_entity_type = args
+        .get("entity_type")
+        .and_then(|v| v.as_str())
         .unwrap_or(&current_entity_type);
-    let new_name = args.get("name").and_then(|v| v.as_str())
+    let new_name = args
+        .get("name")
+        .and_then(|v| v.as_str())
         .unwrap_or(&current_name);
 
     // Regenerate match_key if name or entity_type changed
@@ -1124,18 +1105,24 @@ async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value
     ];
     let mut param_idx: i32 = 5;
 
-    let lede   = args.get("lede").and_then(|v| v.as_str());
-    let why    = args.get("why").and_then(|v| v.as_str());
+    let lede = args.get("lede").and_then(|v| v.as_str());
+    let why = args.get("why").and_then(|v| v.as_str());
     let content = args.get("content").and_then(|v| v.as_str());
 
-    if lede.is_some()    { sets.push(format!("lede = ${param_idx}"));    param_idx += 1; }
-    if why.is_some()     { sets.push(format!("why = ${param_idx}"));     param_idx += 1; }
-    if content.is_some() { sets.push(format!("content = ${param_idx}")); param_idx += 1; }
+    if lede.is_some() {
+        sets.push(format!("lede = ${param_idx}"));
+        param_idx += 1;
+    }
+    if why.is_some() {
+        sets.push(format!("why = ${param_idx}"));
+        param_idx += 1;
+    }
+    if content.is_some() {
+        sets.push(format!("content = ${param_idx}"));
+        param_idx += 1;
+    }
 
-    let sql = format!(
-        "UPDATE notes SET {} WHERE id = $1",
-        sets.join(", ")
-    );
+    let sql = format!("UPDATE notes SET {} WHERE id = $1", sets.join(", "));
 
     let mut q = sqlx::query(&sql)
         .bind(&note_id)
@@ -1143,29 +1130,39 @@ async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value
         .bind(new_name)
         .bind(&new_match_key);
 
-    if let Some(v) = lede    { q = q.bind(v); }
-    if let Some(v) = why     { q = q.bind(v); }
-    if let Some(v) = content { q = q.bind(v); }
+    if let Some(v) = lede {
+        q = q.bind(v);
+    }
+    if let Some(v) = why {
+        q = q.bind(v);
+    }
+    if let Some(v) = content {
+        q = q.bind(v);
+    }
 
     match q.execute(&ctx.db).await {
         Err(e) => return json_rpc_err(id, -32000, &format!("Update failed: {e}")),
-        Ok(r) if r.rows_affected() == 0 =>
-            return json_rpc_err(id, -32000, "Update matched 0 rows"),
+        Ok(r) if r.rows_affected() == 0 => {
+            return json_rpc_err(id, -32000, "Update matched 0 rows")
+        }
         Ok(_) => {}
     }
 
-    json_rpc_ok(id, json!({
-        "content": [{
-            "type": "text",
-            "text": serde_json::to_string(&json!({
-                "status": "updated",
-                "note_id": note_id,
-                "match_key": new_match_key,
-                "entity_type": new_entity_type,
-                "name": new_name,
-            })).unwrap_or_default()
-        }]
-    }))
+    json_rpc_ok(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({
+                    "status": "updated",
+                    "note_id": note_id,
+                    "match_key": new_match_key,
+                    "entity_type": new_entity_type,
+                    "name": new_name,
+                })).unwrap_or_default()
+            }]
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1175,7 +1172,9 @@ async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value
 async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_source(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) {
+        return err;
+    }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -1193,8 +1192,14 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
         Some(l) => l.to_string(),
         None => return json_rpc_err(id, -32602, "Missing required argument: lede"),
     };
-    let why = args.get("why").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let content = args.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let why = args
+        .get("why")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let content = args
+        .get("content")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     // For anansi_config notes, allow an explicit match_key override so callers
     // can produce keys like "anansi_config:template:place" that the name
@@ -1295,7 +1300,9 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
 async fn tool_delete_note(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_source(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) {
+        return err;
+    }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -1319,20 +1326,23 @@ async fn tool_delete_note(state: McpState, id: Value, args: Value) -> Json<Value
 
     // Delete edges connected to this note (both directions) — no FK cascade on edges
     let r1 = sqlx::query("DELETE FROM edges WHERE source_note_id = $1")
-        .bind(&note_id).execute(&ctx.db).await;
+        .bind(&note_id)
+        .execute(&ctx.db)
+        .await;
     let r2 = sqlx::query("DELETE FROM edges WHERE target_note_id = $1")
-        .bind(&note_id).execute(&ctx.db).await;
-    let edges_deleted = r1.map(|r| r.rows_affected()).unwrap_or(0)
-        + r2.map(|r| r.rows_affected()).unwrap_or(0);
+        .bind(&note_id)
+        .execute(&ctx.db)
+        .await;
+    let edges_deleted =
+        r1.map(|r| r.rows_affected()).unwrap_or(0) + r2.map(|r| r.rows_affected()).unwrap_or(0);
 
     // Delete source contributions — no FK cascade
-    let contribs_deleted =
-        sqlx::query("DELETE FROM source_contributions WHERE note_id = $1")
-            .bind(&note_id)
-            .execute(&ctx.db)
-            .await
-            .map(|r| r.rows_affected())
-            .unwrap_or(0);
+    let contribs_deleted = sqlx::query("DELETE FROM source_contributions WHERE note_id = $1")
+        .bind(&note_id)
+        .execute(&ctx.db)
+        .await
+        .map(|r| r.rows_affected())
+        .unwrap_or(0);
 
     // Delete the note itself — embeddings cascade automatically
     let deleted = sqlx::query("DELETE FROM notes WHERE id = $1")
@@ -1346,17 +1356,20 @@ async fn tool_delete_note(state: McpState, id: Value, args: Value) -> Json<Value
         return json_rpc_err(id, -32000, &format!("Failed to delete note: {note_id}"));
     }
 
-    json_rpc_ok(id, json!({
-        "content": [{
-            "type": "text",
-            "text": serde_json::to_string(&json!({
-                "status": "deleted",
-                "note_id": note_id,
-                "edges_deleted": edges_deleted,
-                "contributions_deleted": contribs_deleted,
-            })).unwrap_or_default()
-        }]
-    }))
+    json_rpc_ok(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({
+                    "status": "deleted",
+                    "note_id": note_id,
+                    "edges_deleted": edges_deleted,
+                    "contributions_deleted": contribs_deleted,
+                })).unwrap_or_default()
+            }]
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1366,7 +1379,9 @@ async fn tool_delete_note(state: McpState, id: Value, args: Value) -> Json<Value
 async fn tool_archive_note(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_source(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) {
+        return err;
+    }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -1376,7 +1391,10 @@ async fn tool_archive_note(state: McpState, id: Value, args: Value) -> Json<Valu
         Some(s) => s.to_string(),
         None => return json_rpc_err(id, -32602, "Missing required argument: note_id"),
     };
-    let restore = args.get("restore").and_then(|v| v.as_bool()).unwrap_or(false);
+    let restore = args
+        .get("restore")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     // Fetch current entity_type
     let current_type: Option<String> =
@@ -1396,7 +1414,11 @@ async fn tool_archive_note(state: McpState, id: Value, args: Value) -> Json<Valu
         current_type.trim_start_matches("archive-").to_string()
     } else {
         if current_type.starts_with("archive-") {
-            return json_rpc_err(id, -32000, "Note is already archived. Pass restore:true to unarchive.");
+            return json_rpc_err(
+                id,
+                -32000,
+                "Note is already archived. Pass restore:true to unarchive.",
+            );
         }
         format!("archive-{current_type}")
     };
@@ -1410,16 +1432,19 @@ async fn tool_archive_note(state: McpState, id: Value, args: Value) -> Json<Valu
         .ok();
 
     let action = if restore { "restored" } else { "archived" };
-    json_rpc_ok(id, json!({
-        "content": [{
-            "type": "text",
-            "text": serde_json::to_string(&json!({
-                "status": action,
-                "note_id": note_id,
-                "entity_type": new_type,
-            })).unwrap_or_default()
-        }]
-    }))
+    json_rpc_ok(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&json!({
+                    "status": action,
+                    "note_id": note_id,
+                    "entity_type": new_type,
+                })).unwrap_or_default()
+            }]
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1429,7 +1454,9 @@ async fn tool_archive_note(state: McpState, id: Value, args: Value) -> Json<Valu
 async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
-    if let Some(err) = check_skill_source(&id, &args) { return err; }
+    if let Some(err) = check_skill_source(&id, &args) {
+        return err;
+    }
 
     if ctx.config.server.read_only {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
@@ -1444,16 +1471,15 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
     // 1. Notes where created_from = source_id (direct creation)
     // 2. Notes referenced in source_contributions for this source (merged notes)
     let note_ids: Vec<String> = {
-        let direct = sqlx::query_scalar::<_, String>(
-            "SELECT id FROM notes WHERE created_from = $1"
-        )
-        .bind(&source_id)
-        .fetch_all(&ctx.db)
-        .await
-        .unwrap_or_default();
+        let direct =
+            sqlx::query_scalar::<_, String>("SELECT id FROM notes WHERE created_from = $1")
+                .bind(&source_id)
+                .fetch_all(&ctx.db)
+                .await
+                .unwrap_or_default();
 
         let contributed = sqlx::query_scalar::<_, String>(
-            "SELECT DISTINCT note_id FROM source_contributions WHERE source_id = $1"
+            "SELECT DISTINCT note_id FROM source_contributions WHERE source_id = $1",
         )
         .bind(&source_id)
         .fetch_all(&ctx.db)
@@ -1470,15 +1496,21 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
     let mut edges_deleted: u64 = 0;
     for nid in &note_ids {
         let r1 = sqlx::query("DELETE FROM edges WHERE source_note_id = $1")
-            .bind(nid).execute(&ctx.db).await;
+            .bind(nid)
+            .execute(&ctx.db)
+            .await;
         let r2 = sqlx::query("DELETE FROM edges WHERE target_note_id = $1")
-            .bind(nid).execute(&ctx.db).await;
+            .bind(nid)
+            .execute(&ctx.db)
+            .await;
         edges_deleted += r1.map(|r| r.rows_affected()).unwrap_or(0);
         edges_deleted += r2.map(|r| r.rows_affected()).unwrap_or(0);
     }
     // Also delete any edges attributed to this source via from_source FK
     let r3 = sqlx::query("DELETE FROM edges WHERE from_source = $1")
-        .bind(&source_id).execute(&ctx.db).await;
+        .bind(&source_id)
+        .execute(&ctx.db)
+        .await;
     edges_deleted += r3.map(|r| r.rows_affected()).unwrap_or(0);
 
     // Delete source contributions for this source (must be before notes deletion)
@@ -1525,7 +1557,6 @@ async fn tool_purge(state: McpState, id: Value, args: Value) -> Json<Value> {
     )
 }
 
-
 // ---------------------------------------------------------------------------
 // GET /health
 // ---------------------------------------------------------------------------
@@ -1535,16 +1566,17 @@ async fn handle_health(State(state): State<McpState>) -> impl IntoResponse {
 
     // Check LLM reachability (optional — may not be configured)
     let llm_status = if let Some(ref llm) = ctx.llm {
-        if llm.ping().await.is_ok() { "reachable" } else { "unreachable" }
+        if llm.ping().await.is_ok() {
+            "reachable"
+        } else {
+            "unreachable"
+        }
     } else {
         "not_configured"
     };
 
     // Check DB with SELECT 1
-    let db_ok = sqlx::query("SELECT 1")
-        .execute(&ctx.db)
-        .await
-        .is_ok();
+    let db_ok = sqlx::query("SELECT 1").execute(&ctx.db).await.is_ok();
     let db_status = if db_ok { "ok" } else { "error" };
 
     // Server is healthy as long as DB works — LLM is optional
@@ -1591,7 +1623,10 @@ async fn handle_upload_atomize(
     handle_upload(state, multipart, UploadDest::Atomize).await
 }
 
-enum UploadDest { Inbox, Atomize }
+enum UploadDest {
+    Inbox,
+    Atomize,
+}
 
 async fn handle_upload(
     state: McpState,
@@ -1608,7 +1643,7 @@ async fn handle_upload(
     }
 
     let dir = match dest {
-        UploadDest::Inbox   => &ctx.config.inbox.watch_dir,
+        UploadDest::Inbox => &ctx.config.inbox.watch_dir,
         UploadDest::Atomize => &ctx.config.inbox.queue_dir,
     };
 
@@ -1719,7 +1754,11 @@ async fn tool_export_vault(state: McpState, id: Value, args: Value) -> Json<Valu
     let exports_dir = state.ctx.anansi_root.join("exports");
     match export::export_vault(&state.ctx.db, &note_id, depth, &exports_dir).await {
         Ok(zip_name) => {
-            let url = state.ctx.config.server.public_url
+            let url = state
+                .ctx
+                .config
+                .server
+                .public_url
                 .as_deref()
                 .map(|base| format!("{base}/exports/{zip_name}"))
                 .unwrap_or_else(|| format!("/exports/{zip_name}"));
@@ -1752,9 +1791,21 @@ async fn tool_embed(state: McpState, id: Value, args: Value) -> Json<Value> {
         return json_rpc_err(id, -32000, "this anansi instance is read-only");
     }
 
-    let api_key = match ctx.config.llm.gemini.as_ref().and_then(|g| g.api_key.as_deref()) {
+    let api_key = match ctx
+        .config
+        .llm
+        .gemini
+        .as_ref()
+        .and_then(|g| g.api_key.as_deref())
+    {
         Some(k) => k.to_string(),
-        None => return json_rpc_err(id, -32000, "No Gemini API key configured (set ANANSI_GEMINI_API_KEY)"),
+        None => {
+            return json_rpc_err(
+                id,
+                -32000,
+                "No Gemini API key configured (set ANANSI_GEMINI_API_KEY)",
+            )
+        }
     };
 
     let model = embed::DEFAULT_EMBED_MODEL;
@@ -1795,7 +1846,10 @@ async fn tool_embed(state: McpState, id: Value, args: Value) -> Json<Value> {
         .await;
 
         match result {
-            Ok(_) => json_rpc_ok(id, json!({ "content": [{ "type": "text", "text": format!("1 note embedded") }] })),
+            Ok(_) => json_rpc_ok(
+                id,
+                json!({ "content": [{ "type": "text", "text": format!("1 note embedded") }] }),
+            ),
             Err(e) => json_rpc_err(id, -32000, &format!("Insert failed: {e:#}")),
         }
     } else if args.get("batch").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -1803,11 +1857,12 @@ async fn tool_embed(state: McpState, id: Value, args: Value) -> Json<Value> {
         let note_ids: Vec<String> = match sqlx::query_scalar::<_, String>(
             "SELECT id FROM notes WHERE id NOT IN \
              (SELECT note_id FROM note_embeddings WHERE model = $1) \
-             LIMIT 100"
+             LIMIT 100",
         )
         .bind(model)
         .fetch_all(&ctx.db)
-        .await {
+        .await
+        {
             Ok(ids) => ids,
             Err(e) => return json_rpc_err(id, -32000, &format!("DB query failed: {e:#}")),
         };
@@ -1818,7 +1873,10 @@ async fn tool_embed(state: McpState, id: Value, args: Value) -> Json<Value> {
         for note_id in &note_ids {
             let note = match db::get_note(&ctx.db, note_id).await {
                 Ok(Some(n)) => n,
-                _ => { errors += 1; continue; }
+                _ => {
+                    errors += 1;
+                    continue;
+                }
             };
 
             let text = format!(
@@ -1831,7 +1889,10 @@ async fn tool_embed(state: McpState, id: Value, args: Value) -> Json<Value> {
 
             let vec = match embed::gemini_embed(&api_key, &text, model).await {
                 Ok(v) => v,
-                Err(_) => { errors += 1; continue; }
+                Err(_) => {
+                    errors += 1;
+                    continue;
+                }
             };
 
             let vector = pgvector::Vector::from(vec);
@@ -1851,12 +1912,15 @@ async fn tool_embed(state: McpState, id: Value, args: Value) -> Json<Value> {
             embedded += 1;
         }
 
-        json_rpc_ok(id, json!({
-            "content": [{
-                "type": "text",
-                "text": format!("{embedded} notes embedded, {errors} errors")
-            }]
-        }))
+        json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": format!("{embedded} notes embedded, {errors} errors")
+                }]
+            }),
+        )
     } else {
         json_rpc_err(id, -32602, "Provide either note_id or batch:true")
     }
@@ -1875,11 +1939,27 @@ async fn tool_search_semantic(state: McpState, id: Value, args: Value) -> Json<V
     };
 
     let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
-    let model = args.get("model").and_then(|v| v.as_str()).unwrap_or(embed::DEFAULT_EMBED_MODEL).to_string();
+    let model = args
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or(embed::DEFAULT_EMBED_MODEL)
+        .to_string();
 
-    let api_key = match ctx.config.llm.gemini.as_ref().and_then(|g| g.api_key.as_deref()) {
+    let api_key = match ctx
+        .config
+        .llm
+        .gemini
+        .as_ref()
+        .and_then(|g| g.api_key.as_deref())
+    {
         Some(k) => k.to_string(),
-        None => return json_rpc_err(id, -32000, "No Gemini API key configured (set ANANSI_GEMINI_API_KEY)"),
+        None => {
+            return json_rpc_err(
+                id,
+                -32000,
+                "No Gemini API key configured (set ANANSI_GEMINI_API_KEY)",
+            )
+        }
     };
 
     let vec = match embed::gemini_embed(&api_key, &query, &model).await {
@@ -1896,38 +1976,45 @@ async fn tool_search_semantic(state: McpState, id: Value, args: Value) -> Json<V
          JOIN notes n ON n.id = ne.note_id \
          WHERE ne.model = $2 \
          ORDER BY ne.embedding<=>$1 \
-         LIMIT $3"
+         LIMIT $3",
     )
     .bind(&vector)
     .bind(&model)
     .bind(limit)
     .fetch_all(&ctx.db)
-    .await {
+    .await
+    {
         Ok(r) => r,
         Err(e) => return json_rpc_err(id, -32000, &format!("Semantic search failed: {e:#}")),
     };
 
     use sqlx::Row;
-    let results: Vec<serde_json::Value> = rows.iter().map(|r| {
-        let similarity: f64 = r.try_get("similarity").unwrap_or(0.0);
-        json!({
-            "id": r.get::<String, _>("id"),
-            "name": r.get::<String, _>("name"),
-            "entity_type": r.get::<String, _>("entity_type"),
-            "lede": r.try_get::<Option<String>, _>("lede").unwrap_or(None),
-            "match_key": r.get::<String, _>("match_key"),
-            "similarity": (similarity * 1000.0).round() / 1000.0,
+    let results: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|r| {
+            let similarity: f64 = r.try_get("similarity").unwrap_or(0.0);
+            json!({
+                "id": r.get::<String, _>("id"),
+                "name": r.get::<String, _>("name"),
+                "entity_type": r.get::<String, _>("entity_type"),
+                "lede": r.try_get::<Option<String>, _>("lede").unwrap_or(None),
+                "match_key": r.get::<String, _>("match_key"),
+                "similarity": (similarity * 1000.0).round() / 1000.0,
+            })
         })
-    }).collect();
+        .collect();
 
     let text = serde_json::to_string_pretty(&results).unwrap_or_default();
 
-    json_rpc_ok(id, json!({
-        "content": [{
-            "type": "text",
-            "text": text
-        }]
-    }))
+    json_rpc_ok(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": text
+            }]
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1951,10 +2038,7 @@ async fn handle_export_download(
     match tokio::fs::read(&path).await {
         Ok(bytes) => (
             StatusCode::OK,
-            [(
-                "content-type",
-                "application/zip",
-            )],
+            [("content-type", "application/zip")],
             axum::body::Bytes::from(bytes),
         ),
         Err(_) => (
@@ -1973,7 +2057,10 @@ async fn tool_list_entity_types(state: McpState, id: Value, args: Value) -> Json
     let filter_class = args.get("template_class").and_then(|v| v.as_str());
     let filter_strategy = args.get("merge_strategy").and_then(|v| v.as_str());
     let filter_atomic = args.get("atomic").and_then(|v| v.as_bool());
-    let verbose = args.get("verbose").and_then(|v| v.as_bool()).unwrap_or(false);
+    let verbose = args
+        .get("verbose")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let registry = state.ctx.templates.read().await;
     let all_types = registry.all_entity_types();
@@ -1981,7 +2068,9 @@ async fn tool_list_entity_types(state: McpState, id: Value, args: Value) -> Json
     let mut items: Vec<Value> = Vec::new();
 
     for entity_type in &all_types {
-        let Some(tmpl) = registry.get(entity_type) else { continue };
+        let Some(tmpl) = registry.get(entity_type) else {
+            continue;
+        };
 
         // Apply filters
         if let Some(fc) = filter_class {
@@ -1991,7 +2080,9 @@ async fn tool_list_entity_types(state: McpState, id: Value, args: Value) -> Json
                 TemplateClass::Source => "source",
                 TemplateClass::Utility => "utility",
             };
-            if class_str != fc { continue; }
+            if class_str != fc {
+                continue;
+            }
         }
 
         if let Some(fs) = filter_strategy {
@@ -2001,11 +2092,15 @@ async fn tool_list_entity_types(state: McpState, id: Value, args: Value) -> Json
                 MergeStrategy::SourceBound => "source_bound",
                 MergeStrategy::TitleAuthor => "title_author",
             };
-            if strategy_str != fs { continue; }
+            if strategy_str != fs {
+                continue;
+            }
         }
 
         if let Some(fa) = filter_atomic {
-            if tmpl.atomic != fa { continue; }
+            if tmpl.atomic != fa {
+                continue;
+            }
         }
 
         let class_str = match tmpl.template_class {
@@ -2023,7 +2118,9 @@ async fn tool_list_entity_types(state: McpState, id: Value, args: Value) -> Json
 
         let fields_value = if verbose {
             // Full field details
-            let fields_map: serde_json::Map<String, Value> = tmpl.identity_fields.iter()
+            let fields_map: serde_json::Map<String, Value> = tmpl
+                .identity_fields
+                .iter()
                 .map(|(name, def)| {
                     let mut field_obj = serde_json::Map::new();
                     field_obj.insert("type".to_string(), json!(def.field_type));
@@ -2040,9 +2137,8 @@ async fn tool_list_entity_types(state: McpState, id: Value, args: Value) -> Json
             Value::Object(fields_map)
         } else {
             // Field names only
-            let mut field_names: Vec<&str> = tmpl.identity_fields.keys()
-                .map(|s| s.as_str())
-                .collect();
+            let mut field_names: Vec<&str> =
+                tmpl.identity_fields.keys().map(|s| s.as_str()).collect();
             field_names.sort();
             json!(field_names)
         };

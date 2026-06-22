@@ -11,7 +11,7 @@
 ///     <uuid>.md               ← dropped by anansi_ingest_atomized MCP tool
 ///     processed/              ← successfully ingested files
 ///     failed/                 ← files that failed ingestion (error appended)
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,16 +28,22 @@ use crate::db::DbPool;
 pub async fn run_queue_watcher(config: Arc<Config>, pool: DbPool) {
     let queue_dir = &config.inbox.queue_dir;
     let processed_dir = format!("{queue_dir}/processed");
-    let failed_dir    = format!("{queue_dir}/failed");
+    let failed_dir = format!("{queue_dir}/failed");
 
-    for dir in [queue_dir.as_str(), processed_dir.as_str(), failed_dir.as_str()] {
+    for dir in [
+        queue_dir.as_str(),
+        processed_dir.as_str(),
+        failed_dir.as_str(),
+    ] {
         if let Err(e) = fs::create_dir_all(dir).await {
             eprintln!("[queue] could not create dir '{dir}': {e}");
         }
     }
 
-    eprintln!("[queue] watcher started — polling '{queue_dir}' every {}s",
-        config.inbox.queue_poll_interval_secs);
+    eprintln!(
+        "[queue] watcher started — polling '{queue_dir}' every {}s",
+        config.inbox.queue_poll_interval_secs
+    );
 
     let interval = Duration::from_secs(config.inbox.queue_poll_interval_secs);
     loop {
@@ -53,7 +59,7 @@ pub async fn run_queue_watcher(config: Arc<Config>, pool: DbPool) {
 async fn scan_and_ingest(config: &Arc<Config>, pool: &DbPool) -> Result<()> {
     let queue_dir = Path::new(&config.inbox.queue_dir);
     let processed_dir = queue_dir.join("processed");
-    let failed_dir    = queue_dir.join("failed");
+    let failed_dir = queue_dir.join("failed");
 
     let mut entries = fs::read_dir(queue_dir).await?;
 
@@ -85,7 +91,8 @@ async fn process_queued_file(
     processed_dir: &Path,
     failed_dir: &Path,
 ) -> Result<()> {
-    let filename = path.file_name()
+    let filename = path
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown.md");
 
@@ -95,13 +102,17 @@ async fn process_queued_file(
 
     match ingest_atomized(pool, &content, None, Some(&path.to_string_lossy())).await {
         Ok(report) if report.status == "already_ingested" => {
-            eprintln!("[queue] '{filename}' already ingested (source_id={}) — moving to processed/",
-                report.source_id);
+            eprintln!(
+                "[queue] '{filename}' already ingested (source_id={}) — moving to processed/",
+                report.source_id
+            );
             move_file(path, &processed_dir.join(filename)).await;
         }
         Ok(report) => {
-            eprintln!("[queue] '{filename}' ✓ {} notes created (source_id={})",
-                report.notes_created, report.source_id);
+            eprintln!(
+                "[queue] '{filename}' ✓ {} notes created (source_id={})",
+                report.notes_created, report.source_id
+            );
             move_file(path, &processed_dir.join(filename)).await;
         }
         Err(e) => {
@@ -124,6 +135,10 @@ async fn process_queued_file(
 
 async fn move_file(src: &Path, dest: &Path) {
     if let Err(e) = fs::rename(src, dest).await {
-        eprintln!("[queue] could not move '{}' → '{}': {e}", src.display(), dest.display());
+        eprintln!(
+            "[queue] could not move '{}' → '{}': {e}",
+            src.display(),
+            dest.display()
+        );
     }
 }
