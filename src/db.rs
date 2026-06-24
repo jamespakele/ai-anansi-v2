@@ -198,6 +198,28 @@ pub async fn find_note_by_match_key(pool: &DbPool, key: &str) -> Result<Option<N
     Ok(row.map(row_to_note))
 }
 
+/// Lightweight note projection for the LLM-wiki `index.md` catalog (Build-12).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct NoteSummary {
+    pub entity_type: String,
+    pub name: String,
+    pub match_key: String,
+    pub lede: Option<String>,
+}
+
+/// Live notes as catalog summaries for `index.md`, ordered for stable rendering.
+/// Archived notes (`entity_type` prefixed `archive-`) are excluded — their files
+/// are removed from the live wiki, so listing them would dangle.
+pub async fn all_note_summaries(pool: &DbPool) -> Result<Vec<NoteSummary>> {
+    let rows = sqlx::query_as::<_, NoteSummary>(
+        "SELECT entity_type, name, match_key, lede FROM notes \
+         WHERE entity_type NOT LIKE 'archive-%' ORDER BY entity_type, name",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 fn row_to_note(row: sqlx::postgres::PgRow) -> NoteRecord {
     NoteRecord {
         id: row.get("id"),

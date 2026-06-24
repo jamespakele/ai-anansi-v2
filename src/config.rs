@@ -13,6 +13,8 @@ pub struct Config {
     pub pipeline: PipelineConfig,
     #[serde(default)]
     pub inbox: InboxConfig,
+    #[serde(default)]
+    pub wiki: WikiConfig,
     /// PostgreSQL connection URL — overridden by DATABASE_URL env var at load time.
     #[serde(default = "default_database_url")]
     pub database_url: String,
@@ -179,7 +181,34 @@ impl Default for Config {
             server: ServerConfig::default(),
             pipeline: PipelineConfig::default(),
             inbox: InboxConfig::default(),
+            wiki: WikiConfig::default(),
             database_url: default_database_url(),
+        }
+    }
+}
+
+// ─── LLM-Wiki (Build-12) ──────────────────────────────────────────────────────
+
+/// File-native projection of the knowledge graph (Karpathy LLM-wiki pattern).
+/// When enabled, successful captures are dual-written from canonical Postgres
+/// rows into markdown files under `dir`. Postgres remains the source of truth.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WikiConfig {
+    /// Whether the wiki projection is written on each capture (default false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Root directory for the wiki files (default "/data/llm-wiki").
+    #[serde(default = "default_wiki_dir")]
+    pub dir: String,
+}
+
+fn default_wiki_dir() -> String { "/data/llm-wiki".to_string() }
+
+impl Default for WikiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            dir: default_wiki_dir(),
         }
     }
 }

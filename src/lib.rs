@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod atomized_parser;
 pub mod atomized_ingest;
 pub mod export;
+pub mod wiki;
 pub mod embed;
 pub mod inbox;
 pub mod queue;

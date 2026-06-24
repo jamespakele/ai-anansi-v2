@@ -22,6 +22,7 @@ use tokio::time::sleep;
 use crate::atomized_ingest::ingest_atomized;
 use crate::config::Config;
 use crate::db::DbPool;
+use crate::wiki::WikiStore;
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
@@ -45,9 +46,13 @@ pub async fn run_queue_watcher(config: Arc<Config>, pool: DbPool) {
         config.inbox.queue_poll_interval_secs
     );
 
+    // Built once from config; covers the queue-direct path AND the inbox
+    // pipeline (inbox enqueues here; this watcher is the sole ingest consumer).
+    let wiki = WikiStore::from_config(&config);
+
     let interval = Duration::from_secs(config.inbox.queue_poll_interval_secs);
     loop {
-        if let Err(e) = scan_and_ingest(&config, &pool).await {
+        if let Err(e) = scan_and_ingest(&config, &pool, &wiki).await {
             eprintln!("[queue] scan error: {e}");
         }
         sleep(interval).await;
@@ -56,7 +61,7 @@ pub async fn run_queue_watcher(config: Arc<Config>, pool: DbPool) {
 
 // ─── Scan queue directory ────────────────────────────────────────────────────
 
-async fn scan_and_ingest(config: &Arc<Config>, pool: &DbPool) -> Result<()> {
+async fn scan_and_ingest(config: &Arc<Config>, pool: &DbPool, wiki: &WikiStore) -> Result<()> {
     let queue_dir = Path::new(&config.inbox.queue_dir);
     let processed_dir = queue_dir.join("processed");
     let failed_dir = queue_dir.join("failed");
@@ -75,7 +80,7 @@ async fn scan_and_ingest(config: &Arc<Config>, pool: &DbPool) -> Result<()> {
             continue;
         }
 
-        if let Err(e) = process_queued_file(pool, &path, &processed_dir, &failed_dir).await {
+        if let Err(e) = process_queued_file(pool, &path, &processed_dir, &failed_dir, wiki).await {
             eprintln!("[queue] error processing '{}': {e}", path.display());
         }
     }
@@ -90,6 +95,7 @@ async fn process_queued_file(
     path: &Path,
     processed_dir: &Path,
     failed_dir: &Path,
+    wiki: &WikiStore,
 ) -> Result<()> {
     let filename = path
         .file_name()
@@ -100,7 +106,7 @@ async fn process_queued_file(
 
     eprintln!("[queue] ingesting '{filename}'");
 
-    match ingest_atomized(pool, &content, None, Some(&path.to_string_lossy())).await {
+    match ingest_atomized(pool, &content, None, Some(&path.to_string_lossy()), Some(wiki)).await {
         Ok(report) if report.status == "already_ingested" => {
             eprintln!(
                 "[queue] '{filename}' already ingested (source_id={}) — moving to processed/",

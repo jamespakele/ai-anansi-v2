@@ -98,3 +98,20 @@ read_only = false
 # skills_dir = "/data/skills"      # mount point for r2-anansi.plugin/
 # llm_backend = "gemini"           # "gemini" | "openrouter" | "codex" | "ollama"
 
+
+# ─── LLM-Wiki (Build-12) ──────────────────────────────────────────────────────
+# A file-native projection of the knowledge graph following the Karpathy
+# llm-wiki pattern. When enabled, every successful capture is DUAL-WRITTEN: it
+# still writes PostgreSQL (the source of truth), then projects the affected
+# notes from canonical DB rows into markdown files under `dir`:
+#   <slug>.<entity_type>.md   one file per note (YAML frontmatter + [[wikilinks]])
+#   index.md                  catalog of all notes, grouped by entity_type
+#   log.md                    append-only ingest journal
+#
+# Wiki writes are non-authoritative and non-fatal: a failure is logged and never
+# rolls back or fails the underlying DB write. `dir` lives under /data, which is
+# already persisted by the ./data:/data bind mount — no compose change needed.
+#
+# [wiki]
+# enabled = true
+# dir = "/data/llm-wiki"

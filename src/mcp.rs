@@ -19,6 +19,7 @@ use crate::embed;
 use crate::export;
 use crate::pipeline::IngestContext;
 use crate::template::{MergeStrategy, TemplateClass};
+use crate::wiki::WikiStore;
 
 // ---------------------------------------------------------------------------
 // MCP State
@@ -1276,6 +1277,12 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
         return json_rpc_err(id, -32000, &format!("Capture failed: {e:#}"));
     }
 
+    // Dual-write: project the just-captured note into the LLM-wiki (non-fatal).
+    let wiki = WikiStore::from_config(&ctx.config);
+    if let Err(e) = wiki.materialize(&ctx.db, &[note_id.clone()], &name).await {
+        eprintln!("[wiki] capture materialize failed for '{name}': {e}");
+    }
+
     let status = if existed { "updated" } else { "created" };
 
     json_rpc_ok(
@@ -1313,16 +1320,19 @@ async fn tool_delete_note(state: McpState, id: Value, args: Value) -> Json<Value
         None => return json_rpc_err(id, -32602, "Missing required argument: note_id"),
     };
 
-    // Verify the note exists first
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM notes WHERE id = $1)")
-        .bind(&note_id)
-        .fetch_one(&ctx.db)
-        .await
-        .unwrap_or(false);
+    // Verify the note exists first, capturing entity_type + name so we can
+    // remove its wiki file after the DB delete (the row is gone afterward).
+    let existing: Option<(String, String)> =
+        sqlx::query_as("SELECT entity_type, name FROM notes WHERE id = $1")
+            .bind(&note_id)
+            .fetch_optional(&ctx.db)
+            .await
+            .unwrap_or(None);
 
-    if !exists {
-        return json_rpc_err(id, -32000, &format!("Note not found: {note_id}"));
-    }
+    let (deleted_type, deleted_name) = match existing {
+        Some(pair) => pair,
+        None => return json_rpc_err(id, -32000, &format!("Note not found: {note_id}")),
+    };
 
     // Delete edges connected to this note (both directions) — no FK cascade on edges
     let r1 = sqlx::query("DELETE FROM edges WHERE source_note_id = $1")
@@ -1354,6 +1364,16 @@ async fn tool_delete_note(state: McpState, id: Value, args: Value) -> Json<Value
 
     if deleted == 0 {
         return json_rpc_err(id, -32000, &format!("Failed to delete note: {note_id}"));
+    }
+
+    // Remove the corresponding wiki file and refresh the catalog so the deleted
+    // note no longer dangles in index.md (non-fatal; missing file is fine).
+    let wiki = WikiStore::from_config(&ctx.config);
+    if let Err(e) = wiki.remove_note(&deleted_type, &deleted_name) {
+        eprintln!("[wiki] delete remove failed for '{deleted_name}': {e}");
+    }
+    if let Err(e) = wiki.refresh_index(&ctx.db).await {
+        eprintln!("[wiki] delete index refresh failed: {e}");
     }
 
     json_rpc_ok(
@@ -1396,16 +1416,16 @@ async fn tool_archive_note(state: McpState, id: Value, args: Value) -> Json<Valu
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    // Fetch current entity_type
-    let current_type: Option<String> =
-        sqlx::query_scalar("SELECT entity_type FROM notes WHERE id = $1")
+    // Fetch current entity_type + name (name needed for the wiki file path)
+    let current: Option<(String, String)> =
+        sqlx::query_as("SELECT entity_type, name FROM notes WHERE id = $1")
             .bind(&note_id)
             .fetch_optional(&ctx.db)
             .await
             .unwrap_or(None);
 
-    let current_type = match current_type {
-        Some(t) => t,
+    let (current_type, name) = match current {
+        Some(pair) => pair,
         None => return json_rpc_err(id, -32000, &format!("Note not found: {note_id}")),
     };
 
@@ -1430,6 +1450,24 @@ async fn tool_archive_note(state: McpState, id: Value, args: Value) -> Json<Valu
         .await
         .map_err(|e| e.to_string())
         .ok();
+
+    // Keep the wiki consistent (non-fatal): archived notes are dropped from the
+    // live wiki; restored notes are re-projected from canonical state.
+    let wiki = WikiStore::from_config(&ctx.config);
+    if restore {
+        // Re-project from canonical state (materialize rebuilds index.md too).
+        if let Err(e) = wiki.materialize(&ctx.db, &[note_id.clone()], &name).await {
+            eprintln!("[wiki] archive-restore materialize failed for '{name}': {e}");
+        }
+    } else {
+        // Drop the live file and refresh the catalog so it no longer dangles.
+        if let Err(e) = wiki.remove_note(&current_type, &name) {
+            eprintln!("[wiki] archive remove failed for '{name}': {e}");
+        }
+        if let Err(e) = wiki.refresh_index(&ctx.db).await {
+            eprintln!("[wiki] archive index refresh failed: {e}");
+        }
+    }
 
     let action = if restore { "restored" } else { "archived" };
     json_rpc_ok(

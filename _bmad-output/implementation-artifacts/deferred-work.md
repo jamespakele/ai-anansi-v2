@@ -101,3 +101,23 @@ Build-04 renamed `VOLUME ["/anansi"]` to `VOLUME ["/vault"]` and `./anansi:/anan
 - No down migration / rollback strategy for local DB recovery after a failed 0002 run. Pre-existing SQLx limitation; the table-drop step is irreversible without a backup. Out of scope for Build-08.
 - `content_sb` NULL-for-resource-notes invariant has no DB-level enforcement (no CHECK constraint). Application-level "Never" constraint in the spec covers it for Build-08. Enforcement belongs to the atomized ingest pipeline (Build-09).
 - `source_contributions` UNIQUE(source_id, note_id) blocks multiple TOC contributions from the same source to the same note at different TOC addresses. Pre-existing design constraint; not introduced by Build-08. Revisit when Build-09 atomized ingest is implemented.
+
+---
+
+## Deferred from: LLM-Wiki epic split (2026-06-24)
+
+The LLM-Wiki layer was split into three independently-shippable goals (decision: `[S]` Split, build foundation first). **Build-12 (this spec) covers Goal A only** — the `NoteStore`/`WikiStore` trait and dual-write of Karpathy-style markdown to `/data/llm-wiki/`. The following goals depend on Build-12 and are deferred to later builds:
+
+**Goal B — `anansi-crawl` (the lint/maintenance pass), depends on A.** Reframed (per James) away from a naive "sync loop" toward a Karpathy-style **lint** operation that performs wiki maintenance AND treats Postgres-reconciliation as just one check among several. A periodic background task (mirror the `queue.rs`/`inbox.rs` watcher pattern) that, ordered by last-access date, walks the wiki and: (1) **verifies wiki↔Postgres sync** — since Build-12 dual-writes, every wiki note should already have a matching `notes` row; the crawl flags/repairs drift (missing rows, stale content, orphaned files); (2) refreshes `index.md` (the content catalog) and appends `log.md` entries; (3) runs Karpathy lint checks — contradictions, stale claims superseded by newer sources, orphan pages lacking inbound `[[wikilinks]]`, missing cross-references, data gaps. Postgres remains the source of truth; the wiki is a maintained projection/cache of it.
+
+**Goal C — tipping-point eviction (LRU cache bound), depends on A + B.** A configurable size cap on `/data/llm-wiki/`. When exceeded, evict oldest-accessed wiki files first (the wiki is a bounded LRU buffer over Postgres). Cache-miss reads fall through to the Anansi backend (Postgres / MCP server) for content no longer resident in the wiki. Requires last-access tracking (atime is unreliable under Docker `noatime`/`relatime` — likely needs an explicit access-timestamp sidecar or frontmatter field maintained on read). The tipping point may be system-specific; expose it as config with a sane default.
+
+## From Build-12 Review (2026-06-24)
+
+**`entity_type` used raw as the wiki file extension (`{slug}.{entity_type}.md`)** — `wiki.rs::note_path`/`wikilink` mirror `vault::atomic_note_path`, which the Build-05 review already flagged for the same unsanitized-`entity_type` path-traversal risk. `slug_name` neutralizes the `name`, but a hypothetical `entity_type` containing `/` or `..` would escape the wiki root on write/remove. Same fix as the existing Build-05 deferred item (validate `entity_type` matches `^[A-Za-z_]+$`) — apply once, centrally, covering both `vault.rs` and `wiki.rs`. Not exploitable today (entity types come from the template registry / TOC parser charset).
+
+**`already_ingested` dedup short-circuits wiki materialization** — `atomized_ingest::ingest_atomized` returns early on a content-hash match before the dual-write block. So if the wiki dir is wiped, `[wiki] enabled` is newly turned on, or a prior materialize failed, re-feeding identical content will NOT re-project it. This is acceptable for Build-12 because **Goal B's `anansi-crawl` lint is the designated wiki↔Postgres reconciliation / self-heal mechanism** — it rebuilds missing/stale wiki files from canonical state. Track as a Goal B acceptance case.
+
+**`tool_update_note` is not wired to the wiki** — Build-12 wired capture/delete/archive + the ingest path, but not `anansi_update_note`. A note whose `name` or `entity_type` changes via update orphans its old `{slug}.{type}.md` file (no removal, no re-projection). Goal B's crawl garbage-collects orphans; alternatively wire `update_note` to `remove_note(old)` + `materialize(new)` in a focused follow-up.
+
+**`index.md` is fully rebuilt (full notes-table scan + whole-file rewrite) on every capture** — O(N) per write. This was an explicit "Ask First" the spec resolved in favor of full rebuild (simple, correct at Karpathy's moderate scale). Revisit with an incremental index update when the wiki approaches the Goal C tipping point.
