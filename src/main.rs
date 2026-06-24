@@ -15,6 +15,7 @@ use anansi2::pipeline::{ingest, IngestContext};
 use anansi2::rules::RuleRegistry;
 use anansi2::template::TemplateRegistry;
 use anansi2::vault::Vault;
+use anansi2::wiki::WikiStore;
 
 // ---------------------------------------------------------------------------
 // Embedded seed files (compile-time include_str!)
@@ -98,6 +99,14 @@ enum Command {
     },
     /// Start the MCP HTTP server
     Serve,
+    /// Rebuild the LLM-wiki from Postgres (disaster recovery — runs even if the
+    /// wiki is disabled in config). Reuses the crawl: projects the resident set,
+    /// rebuilds index.md, and GCs stale files at the configured [wiki] dir.
+    RebuildWiki {
+        /// Remove existing wiki files (*.md + .lint-state) before rebuilding.
+        #[arg(long)]
+        clean: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +120,7 @@ async fn main() -> Result<()> {
         Command::Init => cmd_init(&cli.root).await,
         Command::Ingest { file } => cmd_ingest(&cli.root, &file).await,
         Command::Serve => cmd_serve(&cli.root).await,
+        Command::RebuildWiki { clean } => cmd_rebuild_wiki(&cli.root, clean).await,
     }
 }
 
@@ -330,6 +340,66 @@ async fn cmd_ingest(root: &Path, file: &Path) -> Result<()> {
     println!("duration_ms={}", result.duration_ms);
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// cmd_rebuild_wiki — disaster-recovery rebuild of the LLM-wiki from Postgres
+// ---------------------------------------------------------------------------
+
+async fn cmd_rebuild_wiki(root: &Path, clean: bool) -> Result<()> {
+    let config = Config::load(root)
+        .with_context(|| format!("loading config from {}", root.display()))?;
+
+    eprintln!("[rebuild] connecting to db at {}", config.database_url);
+    let pool = db::connect_and_migrate(&config.database_url).await?;
+
+    // Force-enabled: a rebuild is an explicit operation, so it runs even when
+    // [wiki] enabled = false. The configured dir and eviction caps still apply.
+    let mut wiki = WikiStore::from_config(&config);
+    wiki.enabled = true;
+    eprintln!("[rebuild] wiki dir: {}", wiki.root.display());
+
+    if clean {
+        let removed = clean_wiki_dir(&wiki.root)?;
+        eprintln!("[rebuild] cleaned {removed} existing wiki file(s)");
+    }
+
+    let report = wiki.crawl(&pool).await?;
+    eprintln!(
+        "[rebuild] done — {} resident, {} evicted, {} removed, {} errors",
+        report.notes_projected, report.evicted, report.orphans_removed, report.errors
+    );
+    Ok(())
+}
+
+/// Remove only the wiki's own files (`*.md` + `.lint-state`) inside `dir`.
+/// Never deletes the directory itself, other file types, or anything outside it.
+/// Returns the count removed. A missing dir is not an error.
+fn clean_wiki_dir(dir: &Path) -> Result<usize> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e).with_context(|| format!("reading wiki dir: {}", dir.display())),
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        // file_type() reads the dir entry and never follows symlinks, so we skip
+        // directories AND symlinks — only ever unlinking real files we own.
+        match entry.file_type() {
+            Ok(ft) if ft.is_file() => {}
+            _ => continue,
+        }
+        let path = entry.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.ends_with(".md") || name == ".lint-state" {
+            if let Err(e) = std::fs::remove_file(&path) {
+                eprintln!("[rebuild] could not remove {}: {e}", path.display());
+            } else {
+                removed += 1;
+            }
+        }
+    }
+    Ok(removed)
 }
 
 // ---------------------------------------------------------------------------
