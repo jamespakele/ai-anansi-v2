@@ -112,6 +112,13 @@ read_only = false
 # rolls back or fails the underlying DB write. `dir` lives under /data, which is
 # already persisted by the ./data:/data bind mount — no compose change needed.
 #
+# anansi-crawl (Build-13): a background maintenance pass that reconciles the wiki
+# against canonical Postgres state — recreates missing/stale note files, rebuilds
+# index.md, and garbage-collects orphan files no live note backs. Also runnable
+# on demand via the `anansi_wiki_crawl` MCP tool. Requires enabled = true.
+#
 # [wiki]
 # enabled = true
 # dir = "/data/llm-wiki"
+# crawl_enabled = true
+# crawl_interval_secs = 3600

@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use anansi2::config::Config;
+use anansi2::crawl;
 use anansi2::db;
 use anansi2::inbox;
 use anansi2::queue;
@@ -412,6 +413,18 @@ async fn cmd_serve(root: &Path) -> Result<()> {
         eprintln!("[anansi2] inbox watcher spawned — watching '{}'", ctx.config.inbox.watch_dir);
     } else {
         eprintln!("[anansi2] inbox watcher disabled (set inbox.enabled = true in anansi.toml to enable)");
+    }
+
+    // Spawn anansi-crawl watcher if the wiki and its crawl are both enabled
+    if ctx.config.wiki.enabled && ctx.config.wiki.crawl_enabled {
+        let c_config = Arc::new(ctx.config.clone());
+        let c_pool = ctx.db.clone();
+        tokio::spawn(async move {
+            crawl::run_crawl_watcher(c_config, c_pool).await;
+        });
+        eprintln!("[anansi2] crawl watcher spawned — every {}s", ctx.config.wiki.crawl_interval_secs);
+    } else {
+        eprintln!("[anansi2] crawl watcher disabled (set wiki.enabled + wiki.crawl_enabled to enable)");
     }
 
     mcp::serve(ctx, &host, port).await?;

@@ -200,15 +200,25 @@ pub struct WikiConfig {
     /// Root directory for the wiki files (default "/data/llm-wiki").
     #[serde(default = "default_wiki_dir")]
     pub dir: String,
+    /// Whether the background anansi-crawl maintenance task runs (default false).
+    /// Requires `enabled = true`.
+    #[serde(default)]
+    pub crawl_enabled: bool,
+    /// Crawl background-task interval in seconds (default 3600).
+    #[serde(default = "default_crawl_interval_secs")]
+    pub crawl_interval_secs: u64,
 }
 
 fn default_wiki_dir() -> String { "/data/llm-wiki".to_string() }
+fn default_crawl_interval_secs() -> u64 { 3600 }
 
 impl Default for WikiConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             dir: default_wiki_dir(),
+            crawl_enabled: false,
+            crawl_interval_secs: default_crawl_interval_secs(),
         }
     }
 }

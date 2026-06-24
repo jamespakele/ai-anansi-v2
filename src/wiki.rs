@@ -30,6 +30,14 @@ pub struct WikiStore {
     pub enabled: bool,
 }
 
+/// Outcome of one anansi-crawl maintenance pass (Build-13).
+#[derive(Debug, Default, serde::Serialize)]
+pub struct CrawlReport {
+    pub notes_projected: usize,
+    pub orphans_removed: usize,
+    pub errors: usize,
+}
+
 impl WikiStore {
     pub fn from_config(config: &Config) -> Self {
         Self {
@@ -50,6 +58,19 @@ impl WikiStore {
     ) -> Result<()> {
         if !self.enabled {
             return Ok(());
+        }
+        let written = self.project(pool, note_ids).await?;
+        self.append_log(source_title, written)?;
+        Ok(())
+    }
+
+    /// Write the given notes' files from canonical DB state and rebuild
+    /// `index.md`. Shared by `materialize` (capture/ingest) and `crawl` — does
+    /// NOT append a log line, so each caller journals in its own voice. Returns
+    /// the number of note files written. No-op when disabled.
+    async fn project(&self, pool: &DbPool, note_ids: &[String]) -> Result<usize> {
+        if !self.enabled {
+            return Ok(0);
         }
         std::fs::create_dir_all(&self.root)
             .with_context(|| format!("creating wiki root: {}", self.root.display()))?;
@@ -100,8 +121,102 @@ impl WikiStore {
         }
 
         self.rebuild_index(pool).await?;
-        self.append_log(source_title, written)?;
-        Ok(())
+        Ok(written)
+    }
+
+    /// The anansi-crawl maintenance pass: reconcile the wiki against canonical
+    /// PG state (re-project every live note coldest-first, repairing missing /
+    /// stale files and rebuilding `index.md`), garbage-collect orphan wiki files
+    /// no live note backs, and journal a crawl summary. Idempotent and
+    /// self-healing. No-op when disabled.
+    pub async fn crawl(&self, pool: &DbPool) -> Result<CrawlReport> {
+        let mut report = CrawlReport::default();
+        if !self.enabled {
+            return Ok(report);
+        }
+        std::fs::create_dir_all(&self.root)
+            .with_context(|| format!("creating wiki root: {}", self.root.display()))?;
+
+        // Capture the crawl's start instant: any file written at/after this (by a
+        // concurrent capture not yet in our DB snapshot) is spared from GC.
+        let crawl_start = std::time::SystemTime::now();
+
+        // 1. Reconcile: re-project all live notes (coldest first) + rebuild index.
+        let ids = db::live_note_ids_by_access(pool).await?;
+        let projected_ok = match self.project(pool, &ids).await {
+            Ok(n) => {
+                report.notes_projected = n;
+                true
+            }
+            Err(e) => {
+                eprintln!("[crawl] projection failed — skipping GC this pass: {e}");
+                report.errors += 1;
+                false
+            }
+        };
+
+        // 2 & 3. Orphan GC — only when projection succeeded, so we never delete
+        // while the wiki's expected state is uncertain.
+        if projected_ok {
+            let summaries = db::all_note_summaries(pool).await?;
+            let mut expected: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            expected.insert("index.md".to_string());
+            expected.insert("log.md".to_string());
+            for s in &summaries {
+                expected.insert(expected_filename(&s.entity_type, &s.name));
+            }
+
+            for entry in std::fs::read_dir(&self.root)
+                .with_context(|| format!("reading wiki root: {}", self.root.display()))?
+            {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                    continue;
+                }
+                let fname = match path.file_name().and_then(|s| s.to_str()) {
+                    Some(f) => f.to_string(),
+                    None => continue,
+                };
+                if expected.contains(&fname) {
+                    continue;
+                }
+                // Spare files written during this crawl (likely a concurrent
+                // capture) — the next crawl GCs them if genuinely orphaned.
+                if let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) {
+                    if mtime >= crawl_start {
+                        continue;
+                    }
+                }
+                match std::fs::remove_file(&path) {
+                    Ok(()) => report.orphans_removed += 1,
+                    Err(e) => {
+                        eprintln!("[crawl] failed to remove orphan {}: {e}", path.display());
+                        report.errors += 1;
+                    }
+                }
+            }
+        }
+
+        // 4. Journal the crawl.
+        let date = chrono::Utc::now().format("%Y-%m-%d");
+        let line = format!(
+            "## [{date}] crawl | {} notes, {} orphans removed\n",
+            report.notes_projected, report.orphans_removed
+        );
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.root.join("log.md"))
+        {
+            let _ = f.write_all(line.as_bytes());
+        }
+
+        Ok(report)
     }
 
     /// Rebuild `index.md` from current canonical state. Used by removal paths
@@ -146,9 +261,7 @@ impl WikiStore {
     }
 
     fn note_path(&self, entity_type: &str, name: &str) -> PathBuf {
-        let slug = slug_name(name);
-        let ext = if entity_type.is_empty() { "note" } else { entity_type };
-        self.root.join(format!("{slug}.{ext}.md"))
+        self.root.join(expected_filename(entity_type, name))
     }
 
     /// Rebuild `index.md` from all notes, grouped by entity_type (Karpathy catalog).
@@ -268,6 +381,14 @@ fn edge_other<'a>(id: &str, e: &'a EdgeRecord) -> &'a str {
     }
 }
 
+/// The wiki filename a live note maps to — must stay in lockstep with
+/// `WikiStore::note_path` so crawl orphan-GC doesn't delete real note files.
+fn expected_filename(entity_type: &str, name: &str) -> String {
+    let slug = slug_name(name);
+    let ext = if entity_type.is_empty() { "note" } else { entity_type };
+    format!("{slug}.{ext}.md")
+}
+
 /// Obsidian typed wikilink — matches `vault.rs::wikilink`.
 fn wikilink(entity_type: &str, name: &str) -> String {
     let slug = slug_name(name);
@@ -324,6 +445,14 @@ fn yaml_value(v: &str) -> String {
 fn atomic_write(path: &Path, content: &str) -> Result<()> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    // Skip identical rewrites — avoids churn (mtime bumps, IO, backup-dedup
+    // defeat) when a full crawl re-projects unchanged notes and index.md.
+    if let Ok(existing) = std::fs::read_to_string(path) {
+        if existing == content {
+            return Ok(());
+        }
+    }
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -420,6 +549,18 @@ mod tests {
         assert!(yaml_value("foo: bar").starts_with('"'), "colon quoted");
         assert!(yaml_value("a # b").starts_with('"'), "hash quoted");
         assert_eq!(yaml_value("Ian Kitajima"), "Ian Kitajima");
+    }
+
+    #[test]
+    fn expected_filename_matches_note_path_basename() {
+        // Crawl orphan-GC compares basenames against expected_filename; if these
+        // ever diverge from note_path, the crawl would delete live note files.
+        let store = WikiStore { root: PathBuf::from("/wiki"), enabled: true };
+        for (etype, name) in [("person", "Ian Kitajima"), ("", "Fallback"), ("concept", "Sovereign AI")] {
+            let path = store.note_path(etype, name);
+            let basename = path.file_name().unwrap().to_str().unwrap();
+            assert_eq!(basename, expected_filename(etype, name));
+        }
     }
 
     #[test]

@@ -16,3 +16,4 @@ pub mod wiki;
 pub mod embed;
 pub mod inbox;
 pub mod queue;
+pub mod crawl;

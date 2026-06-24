@@ -476,6 +476,14 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                         "type": "object",
                         "properties": {}
                     }
+                },
+                {
+                    "name": "anansi_wiki_crawl",
+                    "description": "Run the anansi-crawl maintenance pass: reconcile the LLM-wiki files against canonical Postgres state (recreate missing/stale note files, rebuild index.md), and remove orphan wiki files no live note backs. No-op if the wiki is disabled. Returns notes_projected / orphans_removed / errors counts.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                    }
                 }
             ]
         }),
@@ -527,6 +535,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_export_vault" => tool_export_vault(state, id, args).await,
         "anansi_list_entity_types" => tool_list_entity_types(state, id, args).await,
         "anansi_reload_templates" => tool_reload_templates(state, id).await,
+        "anansi_wiki_crawl" => tool_wiki_crawl(state, id).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
 }
@@ -534,6 +543,54 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
 // ---------------------------------------------------------------------------
 // anansi_search
 // ---------------------------------------------------------------------------
+
+/// Bump `last_accessed_at` for notes returned by a user-facing read tool
+/// (Build-13). Best-effort: a failure is logged and the read still returns.
+async fn bump_access(state: &McpState, ids: Vec<String>) {
+    if let Err(e) = db::touch_access(&state.ctx.db, &ids).await {
+        eprintln!("[access] touch_access failed: {e}");
+    }
+}
+
+/// On-demand anansi-crawl maintenance pass (Build-13). Reconciles the wiki
+/// against canonical PG state and GCs orphans. No-op (returns `disabled`) when
+/// the wiki is off.
+async fn tool_wiki_crawl(state: McpState, id: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+    if !ctx.config.wiki.enabled {
+        return json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&json!({
+                        "status": "disabled",
+                        "message": "LLM-wiki is disabled (set [wiki] enabled = true to enable the crawl)."
+                    })).unwrap_or_default()
+                }]
+            }),
+        );
+    }
+
+    let wiki = WikiStore::from_config(&ctx.config);
+    match wiki.crawl(&ctx.db).await {
+        Ok(report) => json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&json!({
+                        "status": "ok",
+                        "notes_projected": report.notes_projected,
+                        "orphans_removed": report.orphans_removed,
+                        "errors": report.errors,
+                    })).unwrap_or_default()
+                }]
+            }),
+        ),
+        Err(e) => json_rpc_err(id, -32000, &format!("Crawl failed: {e:#}")),
+    }
+}
 
 async fn tool_search(state: McpState, id: Value, args: Value) -> Json<Value> {
     let query = match args.get("query").and_then(|v| v.as_str()) {
@@ -559,6 +616,7 @@ async fn tool_search(state: McpState, id: Value, args: Value) -> Json<Value> {
 
     match db::search_notes(&state.ctx.db, &query, limit, include_archived, use_or).await {
         Ok(notes) => {
+            bump_access(&state, notes.iter().map(|n| n.id.clone()).collect()).await;
             let items: Vec<Value> = notes
                 .into_iter()
                 .map(|n| {
@@ -615,6 +673,7 @@ async fn tool_filter(state: McpState, id: Value, args: Value) -> Json<Value> {
     .await
     {
         Ok(notes) => {
+            bump_access(&state, notes.iter().map(|n| n.id.clone()).collect()).await;
             let items: Vec<Value> = notes
                 .into_iter()
                 .map(|n| {
@@ -659,6 +718,7 @@ async fn tool_get(state: McpState, id: Value, args: Value) -> Json<Value> {
         Err(e) => json_rpc_err(id, -32000, &format!("DB error: {e}")),
         Ok(None) => json_rpc_err(id, -32000, "Note not found"),
         Ok(Some(note)) => {
+            bump_access(&state, vec![note.id.clone()]).await;
             // Count edges
             let edge_count = db::edges_for_note(&state.ctx.db, &note.id)
                 .await
@@ -2041,6 +2101,8 @@ async fn tool_search_semantic(state: McpState, id: Value, args: Value) -> Json<V
             })
         })
         .collect();
+
+    bump_access(&state, rows.iter().map(|r| r.get::<String, _>("id")).collect()).await;
 
     let text = serde_json::to_string_pretty(&results).unwrap_or_default();
 

@@ -31,6 +31,15 @@ pub fn now_rfc3339() -> String {
     Utc::now().to_rfc3339()
 }
 
+/// Fixed-precision rfc3339 (6-digit microseconds, `+00:00` offset) for
+/// `last_accessed_at`. Unlike `now_rfc3339()` (chrono AutoSi → variable 0/3/6/9
+/// fractional digits), this matches the migration's backfill format exactly, so
+/// values lexically sort in true chronological order — required for the crawl's
+/// coldest-first ordering and (later) eviction.
+pub fn now_rfc3339_micros() -> String {
+    Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SourceRecord {
     pub id: String,
@@ -218,6 +227,33 @@ pub async fn all_note_summaries(pool: &DbPool) -> Result<Vec<NoteSummary>> {
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+/// Bump `last_accessed_at` to now for the given note ids (Build-13). Called ONLY
+/// by the user-facing MCP read tools — never by internal reads — so the cold/hot
+/// signal stays meaningful for the crawl and eviction. Best-effort.
+pub async fn touch_access(pool: &DbPool, ids: &[String]) -> Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    sqlx::query("UPDATE notes SET last_accessed_at = $1 WHERE id = ANY($2)")
+        .bind(now_rfc3339_micros())
+        .bind(ids)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Live note ids (archived excluded) ordered coldest-first by last access, for
+/// the crawl to process oldest-touched notes first (Build-13).
+pub async fn live_note_ids_by_access(pool: &DbPool) -> Result<Vec<String>> {
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM notes WHERE entity_type NOT LIKE 'archive-%' \
+         ORDER BY last_accessed_at ASC NULLS FIRST",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(ids)
 }
 
 fn row_to_note(row: sqlx::postgres::PgRow) -> NoteRecord {
