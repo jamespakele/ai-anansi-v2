@@ -16,6 +16,8 @@ A single folder at the **parent of your PARA roots** — a sibling of `Projects/
 
 This is the server's `[wiki] dir` setting. **Setup note:** the shipped default for `[wiki] dir` is `/data/llm-wiki` (the container path); for local Obsidian access set `[wiki] dir = "/home/pakele/llm-wiki"` in `anansi.toml` so the server writes here. **If the folder doesn't exist, skip the wiki silently and use the MCP tools** exactly as before — do not announce a "miss," just use the database.
 
+> **Getting the wiki onto this machine.** When Anansi runs remotely (VPS), the wiki files aren't local until you pull them. Run the **`anansi-init-wiki`** skill — it calls `anansi_export_wiki`, downloads the full wiki, and unpacks it to `~/llm-wiki` (use `anansi-init-wiki rebuild` to make the local copy exactly match the server). After that, wiki-first reads work locally.
+
 ## Layout
 
 ```
