@@ -118,9 +118,11 @@ For each matched line:
 2. **Parse the type-tag.**
    - `[type:slug]` form → use `slug` as the canonical lookup key.
    - `[type]` form → use `Name` as the lookup key, scoped to this `source_id`.
-3. **Look up the entity in the vault.**
-   - Slug form: `anansi_get` by slug (or `anansi_search` filtered to this `source_id` plus the slug).
-   - Name form: `anansi_search` filtered to this `source_id`, query the `Name`, type filter for disambiguation.
+3. **Look up the entity — wiki-first, then the database.**
+   - **Wiki first:** try the local LLM-wiki file `/home/pakele/llm-wiki/<slug>.<entity_type>.md` (slug = the `[type:slug]` slug, or the `Name` lowercased with non-alphanumeric → hyphens). The wiki is the durable markdown projection of the database — reading it honors "database is the source" (it is **not** the forbidden `output/` scaffolding). A hit gives `lede`/`why`/`content` + `## Connections` with no MCP call. See `references/wiki-first.md`.
+   - **Fall back to the database on any miss** (no `/home/pakele/llm-wiki`, no file, or evicted):
+     - Slug form: `anansi_get` by slug (or `anansi_search` filtered to this `source_id` plus the slug).
+     - Name form: `anansi_search` filtered to this `source_id`, query the `Name`, type filter for disambiguation.
 4. **Pull entity fields:** `lede`, `why` (may be absent), `content`, `edges` (if any).
 5. **Append a chapter** to the in-memory recompose body (Step 4 format).
 

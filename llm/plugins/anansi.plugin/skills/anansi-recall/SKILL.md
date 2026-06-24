@@ -35,6 +35,19 @@ When ambiguous between keyword and semantic, run both and merge — deduplicate 
 
 ---
 
+## Step 0 — Try the local wiki first
+
+Before touching the database, check the **local LLM-wiki** — a markdown mirror of the vault at `/home/pakele/llm-wiki` (full procedure in `references/wiki-first.md`). It absorbs read traffic from the DB and works offline.
+
+- **Exact / named entity** → compute `<slug>.<entity_type>.md` (slug = name lowercased, non-alphanumeric → hyphens) and read it, or locate it via `/home/pakele/llm-wiki/index.md`. Hit → answer from the file (frontmatter + lede/why/content + `## Connections`), no MCP call.
+- **Keyword** → `grep` `/home/pakele/llm-wiki/*.md`.
+- **Semantic similarity or graph >1 hop** → skip the wiki (no file equivalent); go straight to the MCP tools below.
+- **Miss** (no `/home/pakele/llm-wiki` folder, no matching file, or note size-evicted) → fall through silently to Step 1. **The wiki never blocks an answer; always fall back to MCP.**
+
+Treat the wiki as a cache: it may lag the DB by a crawl interval and omits evicted cold notes. For "what's the very latest on X," prefer the MCP path.
+
+---
+
 ## Step 1 — Classify
 
 Read the query. Pick the tool(s) from the table above. Announce the choice in one line before calling:

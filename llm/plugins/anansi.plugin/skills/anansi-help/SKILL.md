@@ -272,9 +272,11 @@ No LLM calls. Direct upsert via match_key.
 
 | Skill | When to use | Tools used |
 |-------|-------------|------------|
-| **anansi-recall** | "What do you know about X?" | `anansi_get`, `anansi_search`, `anansi_edges` |
-| **anansi-recompose** | Reconstruct a full document from atoms | Outline walk → entity lookup → markdown assembly |
+| **anansi-recall** | "What do you know about X?" | wiki-first → `anansi_get`, `anansi_search`, `anansi_edges` |
+| **anansi-recompose** | Reconstruct a full document from atoms | Outline walk → entity lookup (wiki-first) → markdown assembly |
 | **anansi-digest** | *(deprecated — use anansi-recompose)* | — |
+
+**Wiki-first reads.** The read skills consult the local **LLM-wiki** — a markdown mirror of the vault at `/home/pakele/llm-wiki` (the PARA-parent, Obsidian-readable, matching `[wiki] dir`) — *before* the database, then fall back to the MCP tools on a miss. This absorbs read traffic from Postgres and works offline. The wiki is a **cache, never authoritative**: it may lag the DB by a crawl interval and omits size-evicted cold notes, and **mutations** (delete/archive/update/relate/purge) always resolve their target via the database, never the wiki. Full procedure: `references/wiki-first.md`. Rebuild the wiki anytime from Postgres with `anansi2 rebuild-wiki`.
 
 ### Management skills
 
