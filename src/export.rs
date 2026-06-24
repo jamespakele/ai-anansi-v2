@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use zip::write::SimpleFileOptions;
 
 use crate::db::{self, DbPool, EdgeRecord, NoteRecord};
+use crate::wiki::WikiStore;
 
 // ---------------------------------------------------------------------------
 // BFS helper — shared by both export types
@@ -244,4 +245,73 @@ pub async fn export_vault(
     std::fs::write(&zip_path, &zip_buf)?;
 
     Ok(zip_name)
+}
+
+// ---------------------------------------------------------------------------
+// Full-wiki export — the complete graph as a downloadable wiki bundle (Build-18)
+// ---------------------------------------------------------------------------
+
+/// Project ALL live notes into the canonical LLM-wiki layout (note files +
+/// `index.md`) and package it as a zip under `exports_dir`. Returns the zip
+/// filename (served by the existing `/exports/{filename}` route). Built into a
+/// throwaway temp dir with an uncapped, force-enabled `WikiStore` so the bundle
+/// is the FULL graph regardless of the server's `[wiki]` config, and never
+/// touches the live wiki dir. Read-only against Postgres.
+pub async fn export_wiki(pool: &DbPool, exports_dir: &PathBuf) -> Result<String> {
+    std::fs::create_dir_all(exports_dir)?;
+    let export_id = uuid::Uuid::new_v4().to_string();
+    let build_dir = exports_dir.join(format!("wiki-build-{export_id}"));
+    std::fs::create_dir_all(&build_dir)?;
+
+    // Reuse the canonical projection: uncapped (max_*=0 → all live notes),
+    // force-enabled, into the temp dir. Same renderer as the server wiki.
+    let wiki = WikiStore {
+        root: build_dir.clone(),
+        enabled: true,
+        max_bytes: 0,
+        max_notes: 0,
+    };
+    let build = wiki.crawl(pool).await;
+
+    // Zip whatever was produced even if some notes errored; only a hard failure
+    // (e.g. the projection couldn't start) aborts.
+    if let Err(e) = build {
+        let _ = std::fs::remove_dir_all(&build_dir);
+        return Err(e);
+    }
+
+    let zip_name = format!("wiki-{export_id}.zip");
+    let zip_path = exports_dir.join(&zip_name);
+    let result = zip_dir(&build_dir, &zip_path);
+    let _ = std::fs::remove_dir_all(&build_dir); // best-effort cleanup
+    result?;
+
+    Ok(zip_name)
+}
+
+/// Zip every top-level file in `src_dir` (flat) into `zip_path`.
+fn zip_dir(src_dir: &Path, zip_path: &Path) -> Result<()> {
+    let mut zip_buf: Vec<u8> = Vec::new();
+    {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_buf));
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        for entry in std::fs::read_dir(src_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+            let content = std::fs::read(&path)?;
+            zip.start_file(&name, options)?;
+            zip.write_all(&content)?;
+        }
+        zip.finish()?;
+    }
+    std::fs::write(zip_path, &zip_buf)?;
+    Ok(())
 }

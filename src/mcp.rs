@@ -492,6 +492,14 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                         "type": "object",
                         "properties": {}
                     }
+                },
+                {
+                    "name": "anansi_export_wiki",
+                    "description": "Export the FULL LLM-wiki (every live note + index.md, in the Obsidian-compatible wiki format) from Postgres as a downloadable zip. Use to set up or refresh a local wiki copy on a client machine (e.g. via the anansi-init-wiki skill) when anansi runs remotely. Uncapped — contains all notes, not the server's size-bounded resident set. Returns a download_url.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                    }
                 }
             ]
         }),
@@ -545,6 +553,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_reload_templates" => tool_reload_templates(state, id).await,
         "anansi_wiki_crawl" => tool_wiki_crawl(state, id).await,
         "anansi_wiki_lint" => tool_wiki_lint(state, id).await,
+        "anansi_export_wiki" => tool_wiki_export(state, id).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
 }
@@ -1931,6 +1940,40 @@ async fn tool_export_vault(state: McpState, id: Value, args: Value) -> Json<Valu
             )
         }
         Err(e) => json_rpc_err(id, -32000, &format!("Vault export failed: {e:#}")),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// anansi_export_wiki — full LLM-wiki bundle for a local install (Build-18)
+// ---------------------------------------------------------------------------
+
+async fn tool_wiki_export(state: McpState, id: Value) -> Json<Value> {
+    let exports_dir = state.ctx.anansi_root.join("exports");
+    match export::export_wiki(&state.ctx.db, &exports_dir).await {
+        Ok(zip_name) => {
+            let url = state
+                .ctx
+                .config
+                .server
+                .public_url
+                .as_deref()
+                .map(|base| format!("{base}/exports/{zip_name}"))
+                .unwrap_or_else(|| format!("/exports/{zip_name}"));
+            json_rpc_ok(
+                id,
+                json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string(&json!({
+                            "status": "ready",
+                            "filename": zip_name,
+                            "download_url": url,
+                        })).unwrap_or_default()
+                    }]
+                }),
+            )
+        }
+        Err(e) => json_rpc_err(id, -32000, &format!("Wiki export failed: {e:#}")),
     }
 }
 
