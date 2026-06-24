@@ -565,6 +565,12 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
 /// Bump `last_accessed_at` for notes returned by a user-facing read tool
 /// (Build-13). Best-effort: a failure is logged and the read still returns.
 async fn bump_access(state: &McpState, ids: Vec<String>) {
+    // Access tracking only feeds the wiki crawl/eviction, so skip it entirely when
+    // the wiki is disabled — reads stay write-free for non-wiki deployments
+    // (keeps the whole feature opt-in behind `[wiki] enabled`).
+    if !state.ctx.config.wiki.enabled {
+        return;
+    }
     if let Err(e) = db::touch_access(&state.ctx.db, &ids).await {
         eprintln!("[access] touch_access failed: {e}");
     }
