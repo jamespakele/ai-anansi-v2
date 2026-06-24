@@ -591,6 +591,7 @@ async fn tool_wiki_crawl(state: McpState, id: Value) -> Json<Value> {
                     "text": serde_json::to_string(&json!({
                         "status": "ok",
                         "notes_projected": report.notes_projected,
+                        "evicted": report.evicted,
                         "orphans_removed": report.orphans_removed,
                         "errors": report.errors,
                     })).unwrap_or_default()

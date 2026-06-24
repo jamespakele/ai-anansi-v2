@@ -28,12 +28,20 @@ use crate::db::{self, DbPool, EdgeRecord, NoteRecord};
 pub struct WikiStore {
     pub root: PathBuf,
     pub enabled: bool,
+    /// Tipping-point caps (Build-15). 0 = unlimited.
+    pub max_bytes: u64,
+    pub max_notes: u64,
 }
 
-/// Outcome of one anansi-crawl maintenance pass (Build-13).
+/// An `index.md` catalog row: (entity_type, name, lede).
+type IndexEntry = (String, String, Option<String>);
+
+/// Outcome of one anansi-crawl maintenance pass (Build-13, +evicted in Build-15).
 #[derive(Debug, Default, serde::Serialize)]
 pub struct CrawlReport {
     pub notes_projected: usize,
+    /// Live notes beyond the tipping-point cap whose files were evicted (Build-15).
+    pub evicted: usize,
     pub orphans_removed: usize,
     pub errors: usize,
 }
@@ -43,6 +51,8 @@ impl WikiStore {
         Self {
             root: PathBuf::from(&config.wiki.dir),
             enabled: config.wiki.enabled,
+            max_bytes: config.wiki.max_mb.saturating_mul(1_048_576),
+            max_notes: config.wiki.max_notes,
         }
     }
 
@@ -120,8 +130,19 @@ impl WikiStore {
             written += 1;
         }
 
-        self.rebuild_index(pool).await?;
+        // When eviction caps are active, the crawl is the sole author of the
+        // (resident-only) index — rebuilding the all-live index here would list
+        // evicted notes as broken wikilinks. Leave it to the next crawl.
+        if !self.caps_active() {
+            self.rebuild_index(pool).await?;
+        }
         Ok(written)
+    }
+
+    /// Whether a tipping-point cap is configured (Build-15). When true, the crawl
+    /// owns `index.md` (resident-only); the capture/refresh paths defer to it.
+    fn caps_active(&self) -> bool {
+        self.max_bytes > 0 || self.max_notes > 0
     }
 
     /// The anansi-crawl maintenance pass: reconcile the wiki against canonical
@@ -141,36 +162,99 @@ impl WikiStore {
         // concurrent capture not yet in our DB snapshot) is spared from GC.
         let crawl_start = std::time::SystemTime::now();
 
-        // 1. Reconcile: re-project all live notes (coldest first) + rebuild index.
-        let ids = db::live_note_ids_by_access(pool).await?;
-        let projected_ok = match self.project(pool, &ids).await {
-            Ok(n) => {
-                report.notes_projected = n;
-                true
+        // 1. Resident-set projection: hottest-first, bounded by the tipping-point
+        //    caps. Each projected note accrues toward the byte/count budget; once
+        //    a cap is reached every colder note is evicted (its file is swept by
+        //    the GC below, since only resident filenames go into `expected`).
+        let ids = db::live_note_ids_by_access_desc(pool).await?;
+
+        let mut names: HashMap<String, (String, String)> = HashMap::new();
+        let mut resident_files: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut resident_entries: Vec<IndexEntry> = Vec::new();
+        let mut bytes = 0u64;
+        let mut project_failed = false;
+
+        for id in &ids {
+            // Stop projecting once either cap is exhausted (0 = unlimited).
+            let over = (self.max_notes > 0 && report.notes_projected as u64 >= self.max_notes)
+                || (self.max_bytes > 0 && bytes >= self.max_bytes);
+            if over {
+                report.evicted += 1;
+                continue;
             }
-            Err(e) => {
-                eprintln!("[crawl] projection failed — skipping GC this pass: {e}");
+
+            let note = match db::get_note(pool, id).await {
+                Ok(Some(n)) => n,
+                Ok(None) => continue,
+                Err(e) => {
+                    eprintln!("[crawl] get_note failed for {id}: {e}");
+                    report.errors += 1;
+                    project_failed = true;
+                    continue;
+                }
+            };
+            names.insert(id.clone(), (note.name.clone(), note.entity_type.clone()));
+
+            let edges = match db::edges_for_note(pool, id).await {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("[crawl] edges_for_note failed for {id}: {e}");
+                    report.errors += 1;
+                    project_failed = true;
+                    continue;
+                }
+            };
+            for e in &edges {
+                let other = edge_other(&note.id, e);
+                if !names.contains_key(other) {
+                    if let Ok(Some(on)) = db::get_note(pool, other).await {
+                        if !on.entity_type.starts_with("archive-") {
+                            names.insert(other.to_string(), (on.name, on.entity_type));
+                        }
+                    }
+                }
+            }
+
+            if let Err(e) = self.write_note(&note, &edges, &names) {
+                eprintln!("[crawl] write_note failed for '{}': {e}", note.name);
                 report.errors += 1;
-                false
+                // Don't GC this pass: the note's existing (valid) file from a
+                // prior crawl must not be deleted over a transient write hiccup.
+                project_failed = true;
+                continue;
             }
-        };
+            let fname = expected_filename(&note.entity_type, &note.name);
+            bytes += std::fs::metadata(self.root.join(&fname))
+                .map(|m| m.len())
+                .unwrap_or(0);
+            resident_files.insert(fname);
+            resident_entries.push((note.entity_type.clone(), note.name.clone(), note.lede.clone()));
+            report.notes_projected += 1;
+        }
 
-        // 2 & 3. Orphan GC — only when projection succeeded, so we never delete
-        // while the wiki's expected state is uncertain.
-        if projected_ok {
-            let summaries = db::all_note_summaries(pool).await?;
-            let mut expected: std::collections::HashSet<String> =
-                std::collections::HashSet::new();
-            expected.insert("index.md".to_string());
-            expected.insert("log.md".to_string());
-            expected.insert("lint.md".to_string()); // Build-14 lint report — never GC
-            for s in &summaries {
-                expected.insert(expected_filename(&s.entity_type, &s.name));
+        // 2 & 3. Rebuild the resident-only index AND GC non-resident files —
+        //    BOTH only when projection fully succeeded, so a transient error never
+        //    leaves index.md inconsistent with the files on disk. Evicted note
+        //    files AND true orphans are removed; reserved files and concurrently-
+        //    written files (mtime guard) are spared.
+        if !project_failed {
+            if let Err(e) = self.write_index(&resident_entries) {
+                eprintln!("[crawl] index rebuild failed: {e}");
+                report.errors += 1;
             }
 
-            for entry in std::fs::read_dir(&self.root)
-                .with_context(|| format!("reading wiki root: {}", self.root.display()))?
-            {
+            resident_files.insert("index.md".to_string());
+            resident_files.insert("log.md".to_string());
+            resident_files.insert("lint.md".to_string()); // Build-14 lint report
+            match std::fs::read_dir(&self.root) {
+                Err(e) => {
+                    // Non-fatal: skip GC this pass, still journal below.
+                    eprintln!("[crawl] reading wiki root failed — skipping GC: {e}");
+                    report.errors += 1;
+                }
+                Ok(dir) => {
+            for entry in dir {
                 let entry = match entry {
                     Ok(e) => e,
                     Err(_) => continue,
@@ -183,11 +267,9 @@ impl WikiStore {
                     Some(f) => f.to_string(),
                     None => continue,
                 };
-                if expected.contains(&fname) {
+                if resident_files.contains(&fname) {
                     continue;
                 }
-                // Spare files written during this crawl (likely a concurrent
-                // capture) — the next crawl GCs them if genuinely orphaned.
                 if let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) {
                     if mtime >= crawl_start {
                         continue;
@@ -196,9 +278,11 @@ impl WikiStore {
                 match std::fs::remove_file(&path) {
                     Ok(()) => report.orphans_removed += 1,
                     Err(e) => {
-                        eprintln!("[crawl] failed to remove orphan {}: {e}", path.display());
+                        eprintln!("[crawl] failed to remove {}: {e}", path.display());
                         report.errors += 1;
                     }
+                }
+            }
                 }
             }
         }
@@ -206,8 +290,8 @@ impl WikiStore {
         // 4. Journal the crawl.
         let date = chrono::Utc::now().format("%Y-%m-%d");
         let line = format!(
-            "## [{date}] crawl | {} notes, {} orphans removed\n",
-            report.notes_projected, report.orphans_removed
+            "## [{date}] crawl | {} resident, {} evicted, {} removed\n",
+            report.notes_projected, report.evicted, report.orphans_removed
         );
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
@@ -220,11 +304,29 @@ impl WikiStore {
         Ok(report)
     }
 
+    /// Pure resident-set cutoff: number of leading (hottest-first) notes that fit
+    /// under the caps. 0 caps = unlimited. Build-15.
+    #[cfg(test)]
+    fn resident_cutoff(sizes: &[u64], max_bytes: u64, max_notes: u64) -> usize {
+        let mut bytes = 0u64;
+        let mut n = 0usize;
+        for &sz in sizes {
+            if (max_notes > 0 && n as u64 >= max_notes) || (max_bytes > 0 && bytes >= max_bytes) {
+                break;
+            }
+            bytes += sz;
+            n += 1;
+        }
+        n
+    }
+
     /// Rebuild `index.md` from current canonical state. Used by removal paths
     /// (delete/archive) that drop a file but write no note, so the catalog stays
     /// consistent. No-op when disabled.
     pub async fn refresh_index(&self, pool: &DbPool) -> Result<()> {
-        if !self.enabled {
+        if !self.enabled || self.caps_active() {
+            // Capped: the crawl owns the resident-only index; an all-live rebuild
+            // here would re-introduce evicted notes. The next crawl reconciles.
             return Ok(());
         }
         std::fs::create_dir_all(&self.root)
@@ -265,30 +367,38 @@ impl WikiStore {
         self.root.join(expected_filename(entity_type, name))
     }
 
-    /// Rebuild `index.md` from all notes, grouped by entity_type (Karpathy catalog).
+    /// Rebuild `index.md` from ALL live notes (capture / delete / archive paths).
+    /// The Build-15 crawl instead calls `write_index` with the resident set only.
     async fn rebuild_index(&self, pool: &DbPool) -> Result<()> {
-        let summaries = db::all_note_summaries(pool).await?;
+        let entries: Vec<IndexEntry> = db::all_note_summaries(pool)
+            .await?
+            .into_iter()
+            .map(|s| (s.entity_type, s.name, s.lede))
+            .collect();
+        self.write_index(&entries)
+    }
 
-        let mut by_type: BTreeMap<String, Vec<&db::NoteSummary>> = BTreeMap::new();
-        for s in &summaries {
-            by_type.entry(s.entity_type.clone()).or_default().push(s);
+    /// Write `index.md` from an explicit entry set, grouped by entity_type
+    /// (Karpathy catalog). Callers decide the membership: all-live or resident.
+    fn write_index(&self, entries: &[IndexEntry]) -> Result<()> {
+        let mut by_type: BTreeMap<&str, Vec<&IndexEntry>> = BTreeMap::new();
+        for e in entries {
+            by_type.entry(e.0.as_str()).or_default().push(e);
         }
 
         let mut out = String::new();
         out.push_str("# Anansi LLM-Wiki — Index\n\n");
         out.push_str(&format!(
             "Catalog of {} notes, grouped by type. Source of truth: Postgres.\n\n",
-            summaries.len()
+            entries.len()
         ));
         for (etype, notes) in &by_type {
-            let heading = if etype.is_empty() { "note" } else { etype.as_str() };
+            let heading = if etype.is_empty() { "note" } else { etype };
             out.push_str(&format!("## {heading}\n\n"));
-            for s in notes {
-                let link = wikilink(&s.entity_type, &s.name);
-                match s.lede.as_deref().map(oneline) {
-                    Some(lede) if !lede.is_empty() => {
-                        out.push_str(&format!("- {link} — {lede}\n"));
-                    }
+            for (et, name, lede) in notes {
+                let link = wikilink(et, name);
+                match lede.as_deref().map(oneline) {
+                    Some(l) if !l.is_empty() => out.push_str(&format!("- {link} — {l}\n")),
                     _ => out.push_str(&format!("- {link}\n")),
                 }
             }
@@ -556,12 +666,27 @@ mod tests {
     fn expected_filename_matches_note_path_basename() {
         // Crawl orphan-GC compares basenames against expected_filename; if these
         // ever diverge from note_path, the crawl would delete live note files.
-        let store = WikiStore { root: PathBuf::from("/wiki"), enabled: true };
+        let store = WikiStore { root: PathBuf::from("/wiki"), enabled: true, max_bytes: 0, max_notes: 0 };
         for (etype, name) in [("person", "Ian Kitajima"), ("", "Fallback"), ("concept", "Sovereign AI")] {
             let path = store.note_path(etype, name);
             let basename = path.file_name().unwrap().to_str().unwrap();
             assert_eq!(basename, expected_filename(etype, name));
         }
+    }
+
+    #[test]
+    fn resident_cutoff_respects_caps() {
+        let sizes = [10u64, 10, 10, 10, 10]; // 50 bytes total
+        // Unlimited → all resident.
+        assert_eq!(WikiStore::resident_cutoff(&sizes, 0, 0), 5);
+        // Count cap.
+        assert_eq!(WikiStore::resident_cutoff(&sizes, 0, 3), 3);
+        // Size cap: stop once accumulated >= 25 (after 3rd note bytes=30 ≥ 25 → 4th blocked).
+        assert_eq!(WikiStore::resident_cutoff(&sizes, 25, 0), 3);
+        // Whichever first: count=2 beats size=100.
+        assert_eq!(WikiStore::resident_cutoff(&sizes, 100, 2), 2);
+        // Empty input.
+        assert_eq!(WikiStore::resident_cutoff(&[], 100, 100), 0);
     }
 
     #[test]
@@ -572,7 +697,7 @@ mod tests {
 
     #[test]
     fn disabled_store_is_a_noop() {
-        let store = WikiStore { root: PathBuf::from("/definitely/not/writable/xyz"), enabled: false };
+        let store = WikiStore { root: PathBuf::from("/definitely/not/writable/xyz"), enabled: false, max_bytes: 0, max_notes: 0 };
         let n = note("a", "person", "Nobody");
         // Neither call should touch the filesystem or error.
         assert!(store.write_note(&n, &[], &HashMap::new()).is_ok());
@@ -582,7 +707,7 @@ mod tests {
     #[test]
     fn remove_missing_file_is_silent() {
         let dir = std::env::temp_dir().join(format!("anansi-wiki-test-{}", std::process::id()));
-        let store = WikiStore { root: dir, enabled: true };
+        let store = WikiStore { root: dir, enabled: true, max_bytes: 0, max_notes: 0 };
         // No file written yet → removal is a silent success.
         assert!(store.remove_note("person", "Ghost").is_ok());
     }
@@ -591,7 +716,7 @@ mod tests {
     fn write_then_path_roundtrip() {
         let dir = std::env::temp_dir().join(format!("anansi-wiki-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let store = WikiStore { root: dir.clone(), enabled: true };
+        let store = WikiStore { root: dir.clone(), enabled: true, max_bytes: 0, max_notes: 0 };
         let n = note("a", "person", "Ian Kitajima");
 
         store.write_note(&n, &[], &HashMap::new()).unwrap();

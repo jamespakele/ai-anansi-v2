@@ -297,6 +297,23 @@ pub async fn notes_changed_since(
     Ok(rows.into_iter().map(row_to_note).collect())
 }
 
+/// Live note ids (archived excluded) ordered HOTTEST-first by last access, for
+/// the crawl to fill the bounded resident set most-recently-used first (Build-15
+/// eviction). Never-accessed notes (NULL) sort last (coldest).
+pub async fn live_note_ids_by_access_desc(pool: &DbPool) -> Result<Vec<String>> {
+    // Warmth = COALESCE(last_accessed_at, updated_at): a never-read note falls
+    // back to its update time, so freshly-captured notes are HOT (not coldest),
+    // and the `id` tiebreaker makes ordering deterministic when timestamps tie
+    // (e.g. the migration backfill stamped every row identically).
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM notes WHERE entity_type NOT LIKE 'archive-%' \
+         ORDER BY COALESCE(last_accessed_at, updated_at) DESC, id DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(ids)
+}
+
 /// Live note ids (archived excluded) ordered coldest-first by last access, for
 /// the crawl to process oldest-touched notes first (Build-13).
 pub async fn live_note_ids_by_access(pool: &DbPool) -> Result<Vec<String>> {

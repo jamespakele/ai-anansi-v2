@@ -124,6 +124,13 @@ read_only = false
 # cost stays bounded. Requires enabled = true and an LLM backend. Also runnable
 # on demand via the `anansi_wiki_lint` MCP tool.
 #
+# Tipping-point eviction (Build-15): bound the wiki to the hottest notes. The
+# crawl keeps the most-recently-accessed notes that fit under max_mb (total size)
+# and/or max_notes (file count) — whichever cap is hit first — and evicts the
+# rest (deletes their files). Eviction is lossless: evicted notes still resolve
+# via anansi_get/search from Postgres; reading one re-warms it for the next crawl.
+# Both default to 0 = unlimited.
+#
 # [wiki]
 # enabled = true
 # dir = "/data/llm-wiki"
@@ -131,3 +138,5 @@ read_only = false
 # crawl_interval_secs = 3600
 # lint_enabled = true
 # lint_batch_max = 25
+# max_mb = 100        # 0 = unlimited
+# max_notes = 5000    # 0 = unlimited

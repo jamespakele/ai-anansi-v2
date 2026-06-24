@@ -30,8 +30,8 @@ pub async fn run_crawl_watcher(config: Arc<Config>, pool: DbPool) {
         // Run on startup first (self-heals the wiki), then on each interval.
         match wiki.crawl(&pool).await {
             Ok(report) => eprintln!(
-                "[crawl] done — {} notes projected, {} orphans removed, {} errors",
-                report.notes_projected, report.orphans_removed, report.errors
+                "[crawl] done — {} resident, {} evicted, {} removed, {} errors",
+                report.notes_projected, report.evicted, report.orphans_removed, report.errors
             ),
             Err(e) => eprintln!("[crawl] failed: {e}"),
         }

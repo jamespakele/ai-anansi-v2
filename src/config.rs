@@ -214,6 +214,15 @@ pub struct WikiConfig {
     /// Max notes analyzed per lint pass — bounds LLM cost (default 25).
     #[serde(default = "default_lint_batch_max")]
     pub lint_batch_max: u64,
+    /// Tipping-point cap: target max total wiki size in MB before the crawl
+    /// evicts the coldest notes' files. Soft cap — may overshoot by up to one
+    /// note's size (sizes are measured after each write). 0 = unlimited (default).
+    #[serde(default)]
+    pub max_mb: u64,
+    /// Tipping-point cap: max number of resident note files before eviction.
+    /// 0 = unlimited (default).
+    #[serde(default)]
+    pub max_notes: u64,
 }
 
 fn default_wiki_dir() -> String { "/data/llm-wiki".to_string() }
@@ -229,6 +238,8 @@ impl Default for WikiConfig {
             crawl_interval_secs: default_crawl_interval_secs(),
             lint_enabled: false,
             lint_batch_max: default_lint_batch_max(),
+            max_mb: 0,
+            max_notes: 0,
         }
     }
 }
