@@ -6,7 +6,7 @@
 //! rows into markdown files under the configured wiki root:
 //!
 //! ```text
-//! /data/llm-wiki/
+//! ~/llm-wiki/                 ← the configured [wiki] dir (default ~/llm-wiki)
 //!   <slug>.<entity_type>.md   ← one file per note (frontmatter + [[wikilinks]])
 //!   index.md                  ← catalog grouped by entity_type
 //!   log.md                    ← append-only ingest journal

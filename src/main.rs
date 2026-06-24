@@ -99,14 +99,23 @@ enum Command {
     },
     /// Start the MCP HTTP server
     Serve,
-    /// Rebuild the LLM-wiki from Postgres (disaster recovery — runs even if the
-    /// wiki is disabled in config). Reuses the crawl: projects the resident set,
-    /// rebuilds index.md, and GCs stale files at the configured [wiki] dir.
-    RebuildWiki {
-        /// Remove existing wiki files (*.md + .lint-state) before rebuilding.
-        #[arg(long)]
-        clean: bool,
+    /// Manage the local LLM-wiki (projection of Postgres at the configured
+    /// [wiki] dir). For a LOCAL anansi install; remote installs use the
+    /// anansi-init-wiki skill instead.
+    Wiki {
+        #[command(subcommand)]
+        action: WikiAction,
     },
+}
+
+#[derive(Subcommand)]
+enum WikiAction {
+    /// Create the wiki dir and populate it from Postgres. Idempotent — also
+    /// refreshes an existing wiki (repairs/updates files, GCs stale ones).
+    Init,
+    /// Wipe existing wiki files (*.md + .lint-state) then regenerate from
+    /// Postgres — for corruption or a guaranteed-fresh tree.
+    Rebuild,
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +129,10 @@ async fn main() -> Result<()> {
         Command::Init => cmd_init(&cli.root).await,
         Command::Ingest { file } => cmd_ingest(&cli.root, &file).await,
         Command::Serve => cmd_serve(&cli.root).await,
-        Command::RebuildWiki { clean } => cmd_rebuild_wiki(&cli.root, clean).await,
+        Command::Wiki { action } => match action {
+            WikiAction::Init => cmd_rebuild_wiki(&cli.root, false).await,
+            WikiAction::Rebuild => cmd_rebuild_wiki(&cli.root, true).await,
+        },
     }
 }
 

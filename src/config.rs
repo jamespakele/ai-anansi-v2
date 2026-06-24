@@ -225,7 +225,33 @@ pub struct WikiConfig {
     pub max_notes: u64,
 }
 
-fn default_wiki_dir() -> String { "/data/llm-wiki".to_string() }
+fn default_wiki_dir() -> String { "~/llm-wiki".to_string() }
+
+/// Expand a leading `~` / `~/` in a path to the OS home dir. Dependency-free:
+/// `$HOME` (Linux/macOS) then `%USERPROFILE%` (Windows). If neither is set, the
+/// path is returned unchanged (so the misconfig is visible, not fabricated).
+/// Only a bare `~`/`~/` prefix is expanded; `~user` is left as-is.
+fn expand_home(path: &str) -> String {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(|h| h.to_string_lossy().into_owned());
+    expand_home_with(path, home.as_deref())
+}
+
+/// Pure core of `expand_home` with the home dir injected (testable).
+fn expand_home_with(path: &str, home: Option<&str>) -> String {
+    let home = match home {
+        Some(h) if !h.is_empty() => h,
+        _ => return path.to_string(),
+    };
+    if path == "~" {
+        home.to_string()
+    } else if let Some(rest) = path.strip_prefix("~/") {
+        Path::new(home).join(rest).to_string_lossy().into_owned()
+    } else {
+        path.to_string()
+    }
+}
 fn default_crawl_interval_secs() -> u64 { 3600 }
 fn default_lint_batch_max() -> u64 { 25 }
 
@@ -349,6 +375,10 @@ impl Config {
             config.database_url = url;
         }
 
+        // Expand a leading `~`/`~/` in the wiki dir to the OS home, so a
+        // cross-platform `dir = "~/llm-wiki"` resolves everywhere downstream.
+        config.wiki.dir = expand_home(&config.wiki.dir);
+
         Ok(config)
     }
 
@@ -379,6 +409,20 @@ pub fn resolve_openrouter_api_key(cfg: &OpenRouterConfig) -> anyhow::Result<Stri
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn expand_home_resolves_tilde() {
+        assert_eq!(expand_home_with("~/llm-wiki", Some("/home/pakele")), "/home/pakele/llm-wiki");
+        assert_eq!(expand_home_with("~", Some("/Users/james")), "/Users/james");
+        // Absolute and non-tilde relative paths are untouched.
+        assert_eq!(expand_home_with("/data/llm-wiki", Some("/home/pakele")), "/data/llm-wiki");
+        assert_eq!(expand_home_with("relative/dir", Some("/home/pakele")), "relative/dir");
+        // `~user` is not expanded.
+        assert_eq!(expand_home_with("~bob/x", Some("/home/pakele")), "~bob/x");
+        // No home → left literal, not fabricated.
+        assert_eq!(expand_home_with("~/llm-wiki", None), "~/llm-wiki");
+        assert_eq!(expand_home_with("~/llm-wiki", Some("")), "~/llm-wiki");
+    }
 
     #[test]
     fn load_example_config() {
