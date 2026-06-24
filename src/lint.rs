@@ -141,6 +141,11 @@ pub async fn run_lint(
                 &e.source_note_id
             };
             if let Ok(Some(n)) = db::get_note(pool, other_id).await {
+                // Skip archived neighbors — the wiki projection excludes them, so
+                // linting against them would surface findings a reader can't see.
+                if n.entity_type.starts_with("archive-") {
+                    continue;
+                }
                 neighbors.push((n, e.edge_type.clone()));
             }
         }

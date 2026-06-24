@@ -270,6 +270,7 @@ pub async fn export_wiki(pool: &DbPool, exports_dir: &PathBuf) -> Result<String>
         enabled: true,
         max_bytes: 0,
         max_notes: 0,
+        crawl_enabled: false,
     };
     let build = wiki.crawl(pool).await;
 
@@ -279,6 +280,12 @@ pub async fn export_wiki(pool: &DbPool, exports_dir: &PathBuf) -> Result<String>
         let _ = std::fs::remove_dir_all(&build_dir);
         return Err(e);
     }
+
+    // Don't ship log.md: building via crawl() journals a synthetic "## [date]
+    // crawl" line that never happened on the client. The exported bundle is a
+    // content snapshot (note files + index.md); the local install keeps its own
+    // journal.
+    let _ = std::fs::remove_file(build_dir.join("log.md"));
 
     let zip_name = format!("wiki-{export_id}.zip");
     let zip_path = exports_dir.join(&zip_name);

@@ -31,6 +31,10 @@ pub struct WikiStore {
     /// Tipping-point caps (Build-15). 0 = unlimited.
     pub max_bytes: u64,
     pub max_notes: u64,
+    /// Whether the background crawl runs (Build-22). When false, the crawl is NOT
+    /// the index author, so capture/refresh must maintain index.md synchronously
+    /// even under caps (no crawl ⇒ no eviction ⇒ the all-live index is correct).
+    pub crawl_enabled: bool,
 }
 
 /// An `index.md` catalog row: (entity_type, name, lede).
@@ -53,7 +57,15 @@ impl WikiStore {
             enabled: config.wiki.enabled,
             max_bytes: config.wiki.max_mb.saturating_mul(1_048_576),
             max_notes: config.wiki.max_notes,
+            crawl_enabled: config.wiki.crawl_enabled,
         }
+    }
+
+    /// True when the background crawl owns `index.md` (resident-only) — i.e. caps
+    /// are active AND the crawl actually runs. Only then may the synchronous
+    /// capture/refresh paths skip the all-live index rebuild and defer to it.
+    fn crawl_owns_index(&self) -> bool {
+        self.caps_active() && self.crawl_enabled
     }
 
     /// Project a set of just-written notes from canonical DB state into wiki
@@ -130,10 +142,11 @@ impl WikiStore {
             written += 1;
         }
 
-        // When eviction caps are active, the crawl is the sole author of the
-        // (resident-only) index — rebuilding the all-live index here would list
-        // evicted notes as broken wikilinks. Leave it to the next crawl.
-        if !self.caps_active() {
+        // When the crawl owns the index (caps active AND crawl running), it is the
+        // sole author of the resident-only index — rebuilding the all-live index
+        // here would list evicted notes as broken wikilinks. Otherwise (no caps,
+        // or caps but no crawl) keep maintaining index.md synchronously.
+        if !self.crawl_owns_index() {
             self.rebuild_index(pool).await?;
         }
         Ok(written)
@@ -233,12 +246,40 @@ impl WikiStore {
             report.notes_projected += 1;
         }
 
-        // 2 & 3. Rebuild the resident-only index AND GC non-resident files —
-        //    BOTH only when projection fully succeeded, so a transient error never
-        //    leaves index.md inconsistent with the files on disk. Evicted note
-        //    files AND true orphans are removed; reserved files and concurrently-
-        //    written files (mtime guard) are spared.
-        if !project_failed {
+        // 2 & 3. Author index.md and GC non-resident files.
+        //
+        //  • Uncapped (default): the live note set IS the resident set, so derive
+        //    the GC keep-set AND the index authoritatively from all_note_summaries
+        //    — independent of whether any single note's projection errored this
+        //    pass. A single bad row therefore can NOT freeze the index or GC
+        //    (the erroring note just isn't refreshed this pass; it stays kept).
+        //  • Capped: residency was decided by the hottest-first loop above, so we
+        //    must use the loop's resident set and skip both on a projection error
+        //    (conservative — don't delete/drop while the resident set is uncertain).
+        let mut do_maintenance = true;
+        if self.caps_active() {
+            if project_failed {
+                do_maintenance = false;
+            }
+        } else {
+            match db::all_note_summaries(pool).await {
+                Ok(summaries) => {
+                    resident_files.clear();
+                    resident_entries.clear();
+                    for s in &summaries {
+                        resident_files.insert(expected_filename(&s.entity_type, &s.name));
+                        resident_entries.push((s.entity_type.clone(), s.name.clone(), s.lede.clone()));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[crawl] all_note_summaries failed — skipping GC/index: {e}");
+                    report.errors += 1;
+                    do_maintenance = false;
+                }
+            }
+        }
+
+        if do_maintenance {
             if let Err(e) = self.write_index(&resident_entries) {
                 eprintln!("[crawl] index rebuild failed: {e}");
                 report.errors += 1;
@@ -324,9 +365,10 @@ impl WikiStore {
     /// (delete/archive) that drop a file but write no note, so the catalog stays
     /// consistent. No-op when disabled.
     pub async fn refresh_index(&self, pool: &DbPool) -> Result<()> {
-        if !self.enabled || self.caps_active() {
-            // Capped: the crawl owns the resident-only index; an all-live rebuild
-            // here would re-introduce evicted notes. The next crawl reconciles.
+        if !self.enabled || self.crawl_owns_index() {
+            // The crawl owns the resident-only index; an all-live rebuild here
+            // would re-introduce evicted notes. The next crawl reconciles. (When
+            // caps are set but the crawl is off, we DO rebuild — nothing evicts.)
             return Ok(());
         }
         std::fs::create_dir_all(&self.root)
@@ -666,7 +708,7 @@ mod tests {
     fn expected_filename_matches_note_path_basename() {
         // Crawl orphan-GC compares basenames against expected_filename; if these
         // ever diverge from note_path, the crawl would delete live note files.
-        let store = WikiStore { root: PathBuf::from("/wiki"), enabled: true, max_bytes: 0, max_notes: 0 };
+        let store = WikiStore { root: PathBuf::from("/wiki"), enabled: true, max_bytes: 0, max_notes: 0, crawl_enabled: false };
         for (etype, name) in [("person", "Ian Kitajima"), ("", "Fallback"), ("concept", "Sovereign AI")] {
             let path = store.note_path(etype, name);
             let basename = path.file_name().unwrap().to_str().unwrap();
@@ -697,7 +739,7 @@ mod tests {
 
     #[test]
     fn disabled_store_is_a_noop() {
-        let store = WikiStore { root: PathBuf::from("/definitely/not/writable/xyz"), enabled: false, max_bytes: 0, max_notes: 0 };
+        let store = WikiStore { root: PathBuf::from("/definitely/not/writable/xyz"), enabled: false, max_bytes: 0, max_notes: 0, crawl_enabled: false };
         let n = note("a", "person", "Nobody");
         // Neither call should touch the filesystem or error.
         assert!(store.write_note(&n, &[], &HashMap::new()).is_ok());
@@ -707,7 +749,7 @@ mod tests {
     #[test]
     fn remove_missing_file_is_silent() {
         let dir = std::env::temp_dir().join(format!("anansi-wiki-test-{}", std::process::id()));
-        let store = WikiStore { root: dir, enabled: true, max_bytes: 0, max_notes: 0 };
+        let store = WikiStore { root: dir, enabled: true, max_bytes: 0, max_notes: 0, crawl_enabled: false };
         // No file written yet → removal is a silent success.
         assert!(store.remove_note("person", "Ghost").is_ok());
     }
@@ -716,7 +758,7 @@ mod tests {
     fn write_then_path_roundtrip() {
         let dir = std::env::temp_dir().join(format!("anansi-wiki-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let store = WikiStore { root: dir.clone(), enabled: true, max_bytes: 0, max_notes: 0 };
+        let store = WikiStore { root: dir.clone(), enabled: true, max_bytes: 0, max_notes: 0, crawl_enabled: false };
         let n = note("a", "person", "Ian Kitajima");
 
         store.write_note(&n, &[], &HashMap::new()).unwrap();

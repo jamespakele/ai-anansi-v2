@@ -982,18 +982,29 @@ async fn tool_relate(state: McpState, id: Value, args: Value) -> Json<Value> {
     };
 
     match db::insert_edge_if_not_exists(&ctx.db, &edge).await {
-        Ok(inserted) => json_rpc_ok(
-            id,
-            json!({
-                "content": [{
-                    "type": "text",
-                    "text": serde_json::to_string(&json!({
-                        "edge_id": if inserted { Value::String(edge.id.clone()) } else { Value::Null },
-                        "inserted": inserted,
-                    })).unwrap_or_default()
-                }]
-            }),
-        ),
+        Ok(inserted) => {
+            if inserted {
+                // Re-project both endpoints so the new typed wikilink shows up in
+                // each note's `## Connections` (non-fatal).
+                let wiki = WikiStore::from_config(&ctx.config);
+                let ids = vec![edge.source_note_id.clone(), edge.target_note_id.clone()];
+                if let Err(e) = wiki.materialize(&ctx.db, &ids, "relate").await {
+                    eprintln!("[wiki] relate materialize failed: {e}");
+                }
+            }
+            json_rpc_ok(
+                id,
+                json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string(&json!({
+                            "edge_id": if inserted { Value::String(edge.id.clone()) } else { Value::Null },
+                            "inserted": inserted,
+                        })).unwrap_or_default()
+                    }]
+                }),
+            )
+        }
         Err(e) => json_rpc_err(id, -32000, &format!("Failed to insert edge: {e}")),
     }
 }
@@ -1272,6 +1283,19 @@ async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value
             return json_rpc_err(id, -32000, "Update matched 0 rows")
         }
         Ok(_) => {}
+    }
+
+    // Re-project the updated note to the wiki (non-fatal). On a name/type change
+    // the wiki filename changes, so remove the old file first to avoid orphaning
+    // it with stale content.
+    let wiki = WikiStore::from_config(&ctx.config);
+    if new_name != current_name || new_entity_type != current_entity_type {
+        if let Err(e) = wiki.remove_note(&current_entity_type, &current_name) {
+            eprintln!("[wiki] update remove-old failed for '{current_name}': {e}");
+        }
+    }
+    if let Err(e) = wiki.materialize(&ctx.db, &[note_id.clone()], new_name).await {
+        eprintln!("[wiki] update materialize failed for '{new_name}': {e}");
     }
 
     json_rpc_ok(
