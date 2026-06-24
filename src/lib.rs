@@ -17,3 +17,4 @@ pub mod embed;
 pub mod inbox;
 pub mod queue;
 pub mod crawl;
+pub mod lint;

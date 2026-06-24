@@ -207,10 +207,18 @@ pub struct WikiConfig {
     /// Crawl background-task interval in seconds (default 3600).
     #[serde(default = "default_crawl_interval_secs")]
     pub crawl_interval_secs: u64,
+    /// Whether the LLM semantic-lint phase runs during the crawl (default false).
+    /// Requires `enabled = true` and a configured LLM backend.
+    #[serde(default)]
+    pub lint_enabled: bool,
+    /// Max notes analyzed per lint pass — bounds LLM cost (default 25).
+    #[serde(default = "default_lint_batch_max")]
+    pub lint_batch_max: u64,
 }
 
 fn default_wiki_dir() -> String { "/data/llm-wiki".to_string() }
 fn default_crawl_interval_secs() -> u64 { 3600 }
+fn default_lint_batch_max() -> u64 { 25 }
 
 impl Default for WikiConfig {
     fn default() -> Self {
@@ -219,6 +227,8 @@ impl Default for WikiConfig {
             dir: default_wiki_dir(),
             crawl_enabled: false,
             crawl_interval_secs: default_crawl_interval_secs(),
+            lint_enabled: false,
+            lint_batch_max: default_lint_batch_max(),
         }
     }
 }

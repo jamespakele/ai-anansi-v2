@@ -244,6 +244,59 @@ pub async fn touch_access(pool: &DbPool, ids: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Set/clear a note's conflict flag (Build-14 semantic lint). Setting stamps
+/// `conflicts_updated_at = now`; clearing resets it to NULL (no lingering stamp
+/// on a note with no conflicts).
+pub async fn set_conflict(pool: &DbPool, note_id: &str, has: bool) -> Result<()> {
+    sqlx::query(
+        "UPDATE notes SET has_conflicts = $1, \
+         conflicts_updated_at = CASE WHEN $1 = 1 THEN $2 ELSE NULL END WHERE id = $3",
+    )
+    .bind(if has { 1_i64 } else { 0_i64 })
+    .bind(now_rfc3339())
+    .bind(note_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Live notes (archived excluded) changed since the `(updated_at, id)` keyset
+/// cursor (exclusive), oldest first, capped at `limit` — the incremental
+/// work-list for the semantic lint (Build-14). A `None` cursor means "from the
+/// beginning" (first-run backlog). Keyset pagination on `(updated_at, id)` (not
+/// a bare `updated_at >`) so notes sharing a timestamp are never skipped at the
+/// batch boundary.
+pub async fn notes_changed_since(
+    pool: &DbPool,
+    cursor: Option<(&str, &str)>,
+    limit: i64,
+) -> Result<Vec<NoteRecord>> {
+    let rows = match cursor {
+        Some((wm_updated, wm_id)) => {
+            sqlx::query(
+                "SELECT * FROM notes WHERE entity_type NOT LIKE 'archive-%' \
+                 AND (updated_at, id) > ($1, $2) \
+                 ORDER BY updated_at ASC, id ASC LIMIT $3",
+            )
+            .bind(wm_updated)
+            .bind(wm_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            sqlx::query(
+                "SELECT * FROM notes WHERE entity_type NOT LIKE 'archive-%' \
+                 ORDER BY updated_at ASC, id ASC LIMIT $1",
+            )
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+        }
+    };
+    Ok(rows.into_iter().map(row_to_note).collect())
+}
+
 /// Live note ids (archived excluded) ordered coldest-first by last access, for
 /// the crawl to process oldest-touched notes first (Build-13).
 pub async fn live_note_ids_by_access(pool: &DbPool) -> Result<Vec<String>> {

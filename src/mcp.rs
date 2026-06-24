@@ -484,6 +484,14 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                         "type": "object",
                         "properties": {}
                     }
+                },
+                {
+                    "name": "anansi_wiki_lint",
+                    "description": "Run the LLM semantic-lint pass over notes changed since the last run (capped per pass): flags contradictions (sets has_conflicts), stale claims, under-linked notes, and data gaps, writing a browsable lint.md. No-op unless the wiki and lint are enabled and an LLM backend is configured. Returns per-dimension finding counts.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                    }
                 }
             ]
         }),
@@ -536,6 +544,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_list_entity_types" => tool_list_entity_types(state, id, args).await,
         "anansi_reload_templates" => tool_reload_templates(state, id).await,
         "anansi_wiki_crawl" => tool_wiki_crawl(state, id).await,
+        "anansi_wiki_lint" => tool_wiki_lint(state, id).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
 }
@@ -589,6 +598,52 @@ async fn tool_wiki_crawl(state: McpState, id: Value) -> Json<Value> {
             }),
         ),
         Err(e) => json_rpc_err(id, -32000, &format!("Crawl failed: {e:#}")),
+    }
+}
+
+/// On-demand LLM semantic lint (Build-14). Disabled unless wiki + lint are on
+/// and an LLM backend builds.
+async fn tool_wiki_lint(state: McpState, id: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+    if !ctx.config.wiki.enabled || !ctx.config.wiki.lint_enabled {
+        return json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&json!({
+                        "status": "disabled",
+                        "message": "Semantic lint is off (set [wiki] enabled = true and lint_enabled = true)."
+                    })).unwrap_or_default()
+                }]
+            }),
+        );
+    }
+
+    let client = match crate::llm::build_client(&ctx.config.llm) {
+        Ok(c) => c,
+        Err(e) => return json_rpc_err(id, -32000, &format!("No LLM backend: {e}")),
+    };
+    let wiki = WikiStore::from_config(&ctx.config);
+    match crate::lint::run_lint(&ctx.db, &wiki, client.as_ref(), ctx.config.wiki.lint_batch_max).await {
+        Ok(r) => json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&json!({
+                        "status": "ok",
+                        "notes_analyzed": r.notes_analyzed,
+                        "contradictions": r.contradictions,
+                        "stale": r.stale,
+                        "under_linked": r.under_linked,
+                        "gaps": r.gaps,
+                        "conflicts_flagged": r.conflicts_flagged,
+                    })).unwrap_or_default()
+                }]
+            }),
+        ),
+        Err(e) => json_rpc_err(id, -32000, &format!("Lint failed: {e:#}")),
     }
 }
 

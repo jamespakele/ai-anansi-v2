@@ -117,8 +117,17 @@ read_only = false
 # index.md, and garbage-collects orphan files no live note backs. Also runnable
 # on demand via the `anansi_wiki_crawl` MCP tool. Requires enabled = true.
 #
+# LLM semantic lint (Build-14): an analysis phase of the crawl that asks the
+# configured LLM to flag contradictions (sets has_conflicts), stale claims,
+# under-linked notes, and data gaps — writing a browsable lint.md. Incremental
+# (only notes changed since the last run, capped at lint_batch_max per pass) so
+# cost stays bounded. Requires enabled = true and an LLM backend. Also runnable
+# on demand via the `anansi_wiki_lint` MCP tool.
+#
 # [wiki]
 # enabled = true
 # dir = "/data/llm-wiki"
 # crawl_enabled = true
 # crawl_interval_secs = 3600
+# lint_enabled = true
+# lint_batch_max = 25

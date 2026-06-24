@@ -13,6 +13,8 @@ use tokio::time::sleep;
 
 use crate::config::Config;
 use crate::db::DbPool;
+use crate::lint;
+use crate::llm;
 use crate::wiki::WikiStore;
 
 pub async fn run_crawl_watcher(config: Arc<Config>, pool: DbPool) {
@@ -33,6 +35,25 @@ pub async fn run_crawl_watcher(config: Arc<Config>, pool: DbPool) {
             ),
             Err(e) => eprintln!("[crawl] failed: {e}"),
         }
+
+        // Semantic-lint phase (Build-14): only when enabled and an LLM builds.
+        if config.wiki.lint_enabled {
+            match llm::build_client(&config.llm) {
+                Ok(client) => {
+                    match lint::run_lint(&pool, &wiki, client.as_ref(), config.wiki.lint_batch_max)
+                        .await
+                    {
+                        Ok(r) => eprintln!(
+                            "[lint] done — {} analyzed, {} contradictions, {} stale, {} under-linked, {} gaps ({} flagged)",
+                            r.notes_analyzed, r.contradictions, r.stale, r.under_linked, r.gaps, r.conflicts_flagged
+                        ),
+                        Err(e) => eprintln!("[lint] failed: {e}"),
+                    }
+                }
+                Err(e) => eprintln!("[lint] no LLM backend — skipping: {e}"),
+            }
+        }
+
         sleep(interval).await;
     }
 }

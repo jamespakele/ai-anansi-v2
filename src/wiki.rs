@@ -163,6 +163,7 @@ impl WikiStore {
                 std::collections::HashSet::new();
             expected.insert("index.md".to_string());
             expected.insert("log.md".to_string());
+            expected.insert("lint.md".to_string()); // Build-14 lint report — never GC
             for s in &summaries {
                 expected.insert(expected_filename(&s.entity_type, &s.name));
             }
