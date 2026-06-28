@@ -1,5 +1,11 @@
 services:
   anansi:
+    # Local dev: build the image on-box instead of pulling the prod GHCR image.
+    image: anansi-dev
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-dev}
     # Allows the anansi container to reach Ollama running on the host machine.
     # Mac/Windows: host.docker.internal works automatically — extra_hosts not needed.
     # Linux: this maps host.docker.internal → the host's Docker gateway IP.

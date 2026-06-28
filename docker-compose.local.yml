@@ -1,5 +1,11 @@
 services:
   anansi:
+    # Local dev: build the image on-box instead of pulling the prod GHCR image.
+    image: anansi-dev
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-dev}
     # Local dev: bind-mount the repo's llm/plugins skills so edits apply without a rebuild.
     # (Prod does NOT mount skills — it uses the image-baked /app/skills; set skills_dir
     #  to /app/skills there. Dev sets skills_dir = /data/skills to use this mount.)
