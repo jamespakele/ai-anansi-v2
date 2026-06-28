@@ -35,6 +35,23 @@ When ambiguous between keyword and semantic, run both and merge — deduplicate 
 
 ---
 
+## Step 0 — Try the local wiki first (if enabled)
+
+If the local wiki exists at `~/llm-wiki/`, delegate to `wiki-recall` first.
+The wiki is a markdown mirror of the vault — reading from it avoids an
+MCP call and works offline.
+
+1. Read `../wiki-recall/SKILL.md`.
+2. Execute it with the same query, defaulting to `--local` mode.
+3. If found → return the result. No MCP call needed.
+4. If not found → fall through to Step 1 (MCP tools below).
+
+The wiki is a cache: it may lag the DB by a crawl interval and omits
+evicted cold notes. For "what's the very latest on X," skip the wiki
+check and go straight to Step 1.
+
+---
+
 ## Step 1 — Classify
 
 Read the query. Pick the tool(s) from the table above. Announce the choice in one line before calling:

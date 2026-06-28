@@ -10,6 +10,7 @@ use crate::db::{
     find_note_by_match_key, find_source_by_content_hash, insert_contribution,
     insert_edge_if_not_exists, insert_note, insert_source, now_rfc3339,
 };
+use crate::wiki::WikiStore;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -57,6 +58,7 @@ pub async fn ingest_atomized(
     content: &str,
     para_toc: Option<&str>,
     source_path: Option<&str>,
+    wiki: Option<&WikiStore>,
 ) -> Result<IngestAtomizedReport> {
     // Step 1: SHA-256 hash of content
     let content_hash = {
@@ -250,6 +252,17 @@ pub async fn ingest_atomized(
                     }
                 }
             }
+        }
+    }
+
+    // Dual-write: project the just-written notes into the LLM-wiki. Postgres is
+    // authoritative; a wiki failure is logged and never fails the ingest.
+    if let Some(w) = wiki {
+        let mut note_ids: Vec<String> = Vec::with_capacity(address_index.len() + 1);
+        note_ids.push(outline_note_id.clone());
+        note_ids.extend(address_index.values().cloned());
+        if let Err(e) = w.materialize(pool, &note_ids, &parsed.source_title).await {
+            eprintln!("[wiki] materialize failed for '{}': {e}", parsed.source_title);
         }
     }
 

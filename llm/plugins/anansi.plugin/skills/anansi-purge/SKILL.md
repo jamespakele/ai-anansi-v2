@@ -17,18 +17,35 @@ Anansi knowledge base. The source record is removed too. This is irreversible.
 
 ---
 
-## Step 1 — Confirm source_id
+## Step 1 — Identify the source
 
-The user must provide a source_id (UUID). If not provided, stop and ask:
+The user must provide a source identifier. Accept either:
+- **source_id** (UUID) — for the server-side purge
+- **source slug or title** — for the local wiki purge (e.g. "google-s-okf..."
+  or "Google's OKF: The Simple Folder Replacing Vector Databases")
 
-> "What's the source_id to purge? You can find it with `anansi_search` or in
-> Datasette."
+If neither is provided, stop and ask:
 
-Do not guess or infer a source_id. It must be explicit.
+> "What source do you want to purge? Give me the source_id (UUID) or the
+> source title/slug."
 
 ---
 
-## Step 2 — Confirm before firing
+## Step 2 — Wiki check (runs first if wiki is enabled)
+
+If the local wiki exists at `~/llm-wiki/` and a source slug or title was
+provided, delegate to `wiki-purge` first to clean up local files:
+
+1. Read `../wiki-purge/SKILL.md`.
+2. Execute it with the source slug or title.
+3. Then proceed to Step 3 to also purge from the server.
+
+If only a source_id was provided, skip the wiki step — can't resolve to
+local files without a DB query.
+
+---
+
+## Step 3 — Confirm before firing
 
 Before calling `anansi_purge`, show the user what's about to happen and ask
 for confirmation:
@@ -45,7 +62,7 @@ Only proceed if the user confirms.
 
 ---
 
-## Step 3 — Call `anansi_purge`
+## Step 4 — Call `anansi_purge`
 
 Always include `"source": "skill"` in the call payload.
 
@@ -60,11 +77,12 @@ Call `anansi_purge` with:
 
 ---
 
-## Step 4 — Report
+## Step 5 — Report
 
 ```
 *Anansi* — purge complete
 * source_id: {source_id}
+* Local wiki: {cleaned if wiki was enabled}
 * All notes, edges, and contributions removed.
 ```
 

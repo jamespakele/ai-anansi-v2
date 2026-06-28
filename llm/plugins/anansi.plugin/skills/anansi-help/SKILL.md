@@ -272,14 +272,19 @@ No LLM calls. Direct upsert via match_key.
 
 | Skill | When to use | Tools used |
 |-------|-------------|------------|
-| **anansi-recall** | "What do you know about X?" | `anansi_get`, `anansi_search`, `anansi_edges` |
-| **anansi-recompose** | Reconstruct a full document from atoms | Outline walk → entity lookup → markdown assembly |
+| **anansi-recall** | "What do you know about X?" | wiki-first → `anansi_get`, `anansi_search`, `anansi_edges` |
+| **anansi-recompose** | Reconstruct a full document from atoms | Outline walk → entity lookup (wiki-first) → markdown assembly |
 | **anansi-digest** | *(deprecated — use anansi-recompose)* | — |
+
+**Wiki-first reads.** The read skills consult the local **LLM-wiki** — a markdown mirror of the vault at `~/llm-wiki` (the PARA-parent, Obsidian-readable, matching `[wiki] dir`) — *before* the database, then fall back to the MCP tools on a miss. This absorbs read traffic from Postgres and works offline. The wiki is a **cache, never authoritative**: it may lag the DB by a crawl interval and omits size-evicted cold notes, and **mutations** (delete/archive/update/relate/purge) always resolve their target via the database, never the wiki. Full procedure: `references/wiki-first.md`.
+
+**Getting the wiki locally.** When Anansi runs remotely, run the **anansi-init-wiki** skill to pull the full wiki to `~/llm-wiki` (it calls the `anansi_export_wiki` tool, downloads the zip, unpacks it; `rebuild` makes the local copy exactly match the server). On a host where Anansi runs locally, `anansi2 rebuild-wiki` writes the wiki directly.
 
 ### Management skills
 
 | Skill | When to use |
 |-------|-------------|
+| **anansi-init-wiki** | Set up / refresh the local `~/llm-wiki` (download from the server, unpack) |
 | **anansi-delete** | Remove or archive a note |
 | **anansi-purge** | Remove an entire source import |
 | **anansi-new-entity-type** | Create a new entity type template |
@@ -327,7 +332,7 @@ extracted, stored, and merged. Each template has:
 
 ### Template storage hierarchy
 
-1. **Disk** — `llm/plugins/anansi.plugin/references/templates/` (compiled into binary via `include_str!`)
+1. **Disk** — `llm/plugins/anansi-config.plugin/references/templates/` (compiled into binary via `include_str!`)
 2. **DB** — `anansi_config` notes with `match_key: anansi_config:template:<entity_type>`
 3. **Runtime** — DB overrides disk. `anansi_reload_templates` refreshes from DB without restart.
 

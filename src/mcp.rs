@@ -19,6 +19,7 @@ use crate::embed;
 use crate::export;
 use crate::pipeline::IngestContext;
 use crate::template::{MergeStrategy, TemplateClass};
+use crate::wiki::WikiStore;
 
 // ---------------------------------------------------------------------------
 // MCP State
@@ -475,6 +476,30 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                         "type": "object",
                         "properties": {}
                     }
+                },
+                {
+                    "name": "anansi_wiki_crawl",
+                    "description": "Run the anansi-crawl maintenance pass: reconcile the LLM-wiki files against canonical Postgres state (recreate missing/stale note files, rebuild index.md), and remove orphan wiki files no live note backs. No-op if the wiki is disabled. Returns notes_projected / orphans_removed / errors counts.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
+                    "name": "anansi_wiki_lint",
+                    "description": "Run the LLM semantic-lint pass over notes changed since the last run (capped per pass): flags contradictions (sets has_conflicts), stale claims, under-linked notes, and data gaps, writing a browsable lint.md. No-op unless the wiki and lint are enabled and an LLM backend is configured. Returns per-dimension finding counts.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
+                    "name": "anansi_export_wiki",
+                    "description": "Export the FULL LLM-wiki (every live note + index.md, in the Obsidian-compatible wiki format) from Postgres as a downloadable zip. Use to set up or refresh a local wiki copy on a client machine (e.g. via the anansi-init-wiki skill) when anansi runs remotely. Uncapped — contains all notes, not the server's size-bounded resident set. Returns a download_url.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                    }
                 }
             ]
         }),
@@ -526,6 +551,9 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_export_vault" => tool_export_vault(state, id, args).await,
         "anansi_list_entity_types" => tool_list_entity_types(state, id, args).await,
         "anansi_reload_templates" => tool_reload_templates(state, id).await,
+        "anansi_wiki_crawl" => tool_wiki_crawl(state, id).await,
+        "anansi_wiki_lint" => tool_wiki_lint(state, id).await,
+        "anansi_export_wiki" => tool_wiki_export(state, id).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
 }
@@ -533,6 +561,107 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
 // ---------------------------------------------------------------------------
 // anansi_search
 // ---------------------------------------------------------------------------
+
+/// Bump `last_accessed_at` for notes returned by a user-facing read tool
+/// (Build-13). Best-effort: a failure is logged and the read still returns.
+async fn bump_access(state: &McpState, ids: Vec<String>) {
+    // Access tracking only feeds the wiki crawl/eviction, so skip it entirely when
+    // the wiki is disabled — reads stay write-free for non-wiki deployments
+    // (keeps the whole feature opt-in behind `[wiki] enabled`).
+    if !state.ctx.config.wiki.enabled {
+        return;
+    }
+    if let Err(e) = db::touch_access(&state.ctx.db, &ids).await {
+        eprintln!("[access] touch_access failed: {e}");
+    }
+}
+
+/// On-demand anansi-crawl maintenance pass (Build-13). Reconciles the wiki
+/// against canonical PG state and GCs orphans. No-op (returns `disabled`) when
+/// the wiki is off.
+async fn tool_wiki_crawl(state: McpState, id: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+    if !ctx.config.wiki.enabled {
+        return json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&json!({
+                        "status": "disabled",
+                        "message": "LLM-wiki is disabled (set [wiki] enabled = true to enable the crawl)."
+                    })).unwrap_or_default()
+                }]
+            }),
+        );
+    }
+
+    let wiki = WikiStore::from_config(&ctx.config);
+    match wiki.crawl(&ctx.db).await {
+        Ok(report) => json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&json!({
+                        "status": "ok",
+                        "notes_projected": report.notes_projected,
+                        "evicted": report.evicted,
+                        "orphans_removed": report.orphans_removed,
+                        "errors": report.errors,
+                    })).unwrap_or_default()
+                }]
+            }),
+        ),
+        Err(e) => json_rpc_err(id, -32000, &format!("Crawl failed: {e:#}")),
+    }
+}
+
+/// On-demand LLM semantic lint (Build-14). Disabled unless wiki + lint are on
+/// and an LLM backend builds.
+async fn tool_wiki_lint(state: McpState, id: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+    if !ctx.config.wiki.enabled || !ctx.config.wiki.lint_enabled {
+        return json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&json!({
+                        "status": "disabled",
+                        "message": "Semantic lint is off (set [wiki] enabled = true and lint_enabled = true)."
+                    })).unwrap_or_default()
+                }]
+            }),
+        );
+    }
+
+    let client = match crate::llm::build_client(&ctx.config.llm) {
+        Ok(c) => c,
+        Err(e) => return json_rpc_err(id, -32000, &format!("No LLM backend: {e}")),
+    };
+    let wiki = WikiStore::from_config(&ctx.config);
+    match crate::lint::run_lint(&ctx.db, &wiki, client.as_ref(), ctx.config.wiki.lint_batch_max).await {
+        Ok(r) => json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&json!({
+                        "status": "ok",
+                        "notes_analyzed": r.notes_analyzed,
+                        "contradictions": r.contradictions,
+                        "stale": r.stale,
+                        "under_linked": r.under_linked,
+                        "gaps": r.gaps,
+                        "conflicts_flagged": r.conflicts_flagged,
+                    })).unwrap_or_default()
+                }]
+            }),
+        ),
+        Err(e) => json_rpc_err(id, -32000, &format!("Lint failed: {e:#}")),
+    }
+}
 
 async fn tool_search(state: McpState, id: Value, args: Value) -> Json<Value> {
     let query = match args.get("query").and_then(|v| v.as_str()) {
@@ -558,6 +687,7 @@ async fn tool_search(state: McpState, id: Value, args: Value) -> Json<Value> {
 
     match db::search_notes(&state.ctx.db, &query, limit, include_archived, use_or).await {
         Ok(notes) => {
+            bump_access(&state, notes.iter().map(|n| n.id.clone()).collect()).await;
             let items: Vec<Value> = notes
                 .into_iter()
                 .map(|n| {
@@ -614,6 +744,7 @@ async fn tool_filter(state: McpState, id: Value, args: Value) -> Json<Value> {
     .await
     {
         Ok(notes) => {
+            bump_access(&state, notes.iter().map(|n| n.id.clone()).collect()).await;
             let items: Vec<Value> = notes
                 .into_iter()
                 .map(|n| {
@@ -658,6 +789,7 @@ async fn tool_get(state: McpState, id: Value, args: Value) -> Json<Value> {
         Err(e) => json_rpc_err(id, -32000, &format!("DB error: {e}")),
         Ok(None) => json_rpc_err(id, -32000, "Note not found"),
         Ok(Some(note)) => {
+            bump_access(&state, vec![note.id.clone()]).await;
             // Count edges
             let edge_count = db::edges_for_note(&state.ctx.db, &note.id)
                 .await
@@ -856,18 +988,29 @@ async fn tool_relate(state: McpState, id: Value, args: Value) -> Json<Value> {
     };
 
     match db::insert_edge_if_not_exists(&ctx.db, &edge).await {
-        Ok(inserted) => json_rpc_ok(
-            id,
-            json!({
-                "content": [{
-                    "type": "text",
-                    "text": serde_json::to_string(&json!({
-                        "edge_id": if inserted { Value::String(edge.id.clone()) } else { Value::Null },
-                        "inserted": inserted,
-                    })).unwrap_or_default()
-                }]
-            }),
-        ),
+        Ok(inserted) => {
+            if inserted {
+                // Re-project both endpoints so the new typed wikilink shows up in
+                // each note's `## Connections` (non-fatal).
+                let wiki = WikiStore::from_config(&ctx.config);
+                let ids = vec![edge.source_note_id.clone(), edge.target_note_id.clone()];
+                if let Err(e) = wiki.materialize(&ctx.db, &ids, "relate").await {
+                    eprintln!("[wiki] relate materialize failed: {e}");
+                }
+            }
+            json_rpc_ok(
+                id,
+                json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string(&json!({
+                            "edge_id": if inserted { Value::String(edge.id.clone()) } else { Value::Null },
+                            "inserted": inserted,
+                        })).unwrap_or_default()
+                    }]
+                }),
+            )
+        }
         Err(e) => json_rpc_err(id, -32000, &format!("Failed to insert edge: {e}")),
     }
 }
@@ -1148,6 +1291,19 @@ async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value
         Ok(_) => {}
     }
 
+    // Re-project the updated note to the wiki (non-fatal). On a name/type change
+    // the wiki filename changes, so remove the old file first to avoid orphaning
+    // it with stale content.
+    let wiki = WikiStore::from_config(&ctx.config);
+    if new_name != current_name || new_entity_type != current_entity_type {
+        if let Err(e) = wiki.remove_note(&current_entity_type, &current_name) {
+            eprintln!("[wiki] update remove-old failed for '{current_name}': {e}");
+        }
+    }
+    if let Err(e) = wiki.materialize(&ctx.db, &[note_id.clone()], new_name).await {
+        eprintln!("[wiki] update materialize failed for '{new_name}': {e}");
+    }
+
     json_rpc_ok(
         id,
         json!({
@@ -1276,6 +1432,12 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
         return json_rpc_err(id, -32000, &format!("Capture failed: {e:#}"));
     }
 
+    // Dual-write: project the just-captured note into the LLM-wiki (non-fatal).
+    let wiki = WikiStore::from_config(&ctx.config);
+    if let Err(e) = wiki.materialize(&ctx.db, &[note_id.clone()], &name).await {
+        eprintln!("[wiki] capture materialize failed for '{name}': {e}");
+    }
+
     let status = if existed { "updated" } else { "created" };
 
     json_rpc_ok(
@@ -1313,16 +1475,19 @@ async fn tool_delete_note(state: McpState, id: Value, args: Value) -> Json<Value
         None => return json_rpc_err(id, -32602, "Missing required argument: note_id"),
     };
 
-    // Verify the note exists first
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM notes WHERE id = $1)")
-        .bind(&note_id)
-        .fetch_one(&ctx.db)
-        .await
-        .unwrap_or(false);
+    // Verify the note exists first, capturing entity_type + name so we can
+    // remove its wiki file after the DB delete (the row is gone afterward).
+    let existing: Option<(String, String)> =
+        sqlx::query_as("SELECT entity_type, name FROM notes WHERE id = $1")
+            .bind(&note_id)
+            .fetch_optional(&ctx.db)
+            .await
+            .unwrap_or(None);
 
-    if !exists {
-        return json_rpc_err(id, -32000, &format!("Note not found: {note_id}"));
-    }
+    let (deleted_type, deleted_name) = match existing {
+        Some(pair) => pair,
+        None => return json_rpc_err(id, -32000, &format!("Note not found: {note_id}")),
+    };
 
     // Delete edges connected to this note (both directions) — no FK cascade on edges
     let r1 = sqlx::query("DELETE FROM edges WHERE source_note_id = $1")
@@ -1354,6 +1519,16 @@ async fn tool_delete_note(state: McpState, id: Value, args: Value) -> Json<Value
 
     if deleted == 0 {
         return json_rpc_err(id, -32000, &format!("Failed to delete note: {note_id}"));
+    }
+
+    // Remove the corresponding wiki file and refresh the catalog so the deleted
+    // note no longer dangles in index.md (non-fatal; missing file is fine).
+    let wiki = WikiStore::from_config(&ctx.config);
+    if let Err(e) = wiki.remove_note(&deleted_type, &deleted_name) {
+        eprintln!("[wiki] delete remove failed for '{deleted_name}': {e}");
+    }
+    if let Err(e) = wiki.refresh_index(&ctx.db).await {
+        eprintln!("[wiki] delete index refresh failed: {e}");
     }
 
     json_rpc_ok(
@@ -1396,16 +1571,16 @@ async fn tool_archive_note(state: McpState, id: Value, args: Value) -> Json<Valu
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    // Fetch current entity_type
-    let current_type: Option<String> =
-        sqlx::query_scalar("SELECT entity_type FROM notes WHERE id = $1")
+    // Fetch current entity_type + name (name needed for the wiki file path)
+    let current: Option<(String, String)> =
+        sqlx::query_as("SELECT entity_type, name FROM notes WHERE id = $1")
             .bind(&note_id)
             .fetch_optional(&ctx.db)
             .await
             .unwrap_or(None);
 
-    let current_type = match current_type {
-        Some(t) => t,
+    let (current_type, name) = match current {
+        Some(pair) => pair,
         None => return json_rpc_err(id, -32000, &format!("Note not found: {note_id}")),
     };
 
@@ -1430,6 +1605,24 @@ async fn tool_archive_note(state: McpState, id: Value, args: Value) -> Json<Valu
         .await
         .map_err(|e| e.to_string())
         .ok();
+
+    // Keep the wiki consistent (non-fatal): archived notes are dropped from the
+    // live wiki; restored notes are re-projected from canonical state.
+    let wiki = WikiStore::from_config(&ctx.config);
+    if restore {
+        // Re-project from canonical state (materialize rebuilds index.md too).
+        if let Err(e) = wiki.materialize(&ctx.db, &[note_id.clone()], &name).await {
+            eprintln!("[wiki] archive-restore materialize failed for '{name}': {e}");
+        }
+    } else {
+        // Drop the live file and refresh the catalog so it no longer dangles.
+        if let Err(e) = wiki.remove_note(&current_type, &name) {
+            eprintln!("[wiki] archive remove failed for '{name}': {e}");
+        }
+        if let Err(e) = wiki.refresh_index(&ctx.db).await {
+            eprintln!("[wiki] archive index refresh failed: {e}");
+        }
+    }
 
     let action = if restore { "restored" } else { "archived" };
     json_rpc_ok(
@@ -1781,6 +1974,40 @@ async fn tool_export_vault(state: McpState, id: Value, args: Value) -> Json<Valu
 }
 
 // ---------------------------------------------------------------------------
+// anansi_export_wiki — full LLM-wiki bundle for a local install (Build-18)
+// ---------------------------------------------------------------------------
+
+async fn tool_wiki_export(state: McpState, id: Value) -> Json<Value> {
+    let exports_dir = state.ctx.anansi_root.join("exports");
+    match export::export_wiki(&state.ctx.db, &exports_dir).await {
+        Ok(zip_name) => {
+            let url = state
+                .ctx
+                .config
+                .server
+                .public_url
+                .as_deref()
+                .map(|base| format!("{base}/exports/{zip_name}"))
+                .unwrap_or_else(|| format!("/exports/{zip_name}"));
+            json_rpc_ok(
+                id,
+                json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string(&json!({
+                            "status": "ready",
+                            "filename": zip_name,
+                            "download_url": url,
+                        })).unwrap_or_default()
+                    }]
+                }),
+            )
+        }
+        Err(e) => json_rpc_err(id, -32000, &format!("Wiki export failed: {e:#}")),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // anansi_embed
 // ---------------------------------------------------------------------------
 
@@ -2003,6 +2230,8 @@ async fn tool_search_semantic(state: McpState, id: Value, args: Value) -> Json<V
             })
         })
         .collect();
+
+    bump_access(&state, rows.iter().map(|r| r.get::<String, _>("id")).collect()).await;
 
     let text = serde_json::to_string_pretty(&results).unwrap_or_default();
 

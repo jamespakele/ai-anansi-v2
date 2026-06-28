@@ -21,6 +21,10 @@ argument-hint: "[document content; optionally prefixed with known_projects/known
 
 # para-projects-areas
 
+**Execution protocol:** Execute every step below in order. After all steps,
+run the [Done](#done) checklist. If any check fails, re-run with the errors
+as feedback. Repeat until all checks pass or 3 attempts. Do not skip steps.
+
 A high-precision document scanner. Read an input — an email, thread, meeting summary, transcript, article, or any prose — and emit **two files**: a TOC file (`projects-areas-toc.md`) for navigation and a typed-fields file (`projects-areas-typed.md`) for entity detail. The two files share a `source_id` and `generated_at` so downstream code can rejoin them. Both contain just the user's **Projects** and **Areas** (in that order, matching `para-toc`'s actionability-descending convention). Nothing else. No Resources. No Concepts. No Archive items. The skill's first commitment is to refuse to over-identify: a quiet output is a valid output, and silence beats a false-positive Project or Area every time.
 
 This is the PA-only slice of `para-extract`, paired with `para-resource-entities` for the resource side. Same Forte-grounded decision rules, same input format, same field semantics — but with two structural twists adapted from `para-toc`:
@@ -1255,3 +1259,14 @@ Always quote evidence verbatim. Don't paraphrase the document into the Evidence 
 ## Why this matters
 
 PARA's value comes from a clean active-commitment list — Projects and Areas are the two most actionable tiers, and they're the ones the user looks at to answer *"what am I on the hook for right now?"* Both `para-extract` and `para-classify` lean toward extracting when ambiguous, because the cost of a missed Resource or a misclassified Concept is small. But for Projects and Areas, the cost asymmetry flips: a phantom Project clutters the active workspace, dilutes the meaning of "project," and erodes trust in the list; a phantom Area inflates the user's responsibility surface, manufacturing a standard they never agreed to uphold. This skill exists for the pipelines where that asymmetry matters most — vault canonicalization, weekly review prep, commitment inventory, anything that feeds a list the user actually consults to plan their week. The two-file output (TOC + typed-fields, joined by `source_id`) makes the Project-Area relationship machine-readable without sacrificing the precision rule, and pairs symmetrically with `para-resource-entities` so the full PARA scan that `para-extract` used to handle in one pass is now three focused passes (PA discovery, Resource discovery, smart-brevity compression) instead of one omnibus reduction. Field-set alignment with the canonical anansi entity templates (entity-project.md v2.1+, entity-area.md v3.1+) means the skill's emitted blocks slot directly into the vault without a translation layer. Reach for it when over-identification is the failure mode you're tuning against, and accept that empty output is sometimes the most honest result.
+
+## Done
+
+- [ ] `projects-areas-toc.md` and `projects-areas-typed.md` both exist
+- [ ] TOC has `## 1. Projects` and `## 2. Areas` sections
+- [ ] All entries have decimal addresses (1.1, 1.2, ... 2.1, 2.2, ...)
+- [ ] All entries have type tags (`[project]` or `[area]`)
+- [ ] `[area:2.N]` cross-references resolve to real addresses in Section 2
+- [ ] Sub-projects nest under parent with third-decimal addresses (1.1.1, 1.1.2)
+- [ ] Empty sections render as `_(none found)_` rather than being omitted
+- [ ] Both files share the same `source_id` and `generated_at` in frontmatter

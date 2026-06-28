@@ -31,6 +31,15 @@ pub fn now_rfc3339() -> String {
     Utc::now().to_rfc3339()
 }
 
+/// Fixed-precision rfc3339 (6-digit microseconds, `+00:00` offset) for
+/// `last_accessed_at`. Unlike `now_rfc3339()` (chrono AutoSi → variable 0/3/6/9
+/// fractional digits), this matches the migration's backfill format exactly, so
+/// values lexically sort in true chronological order — required for the crawl's
+/// coldest-first ordering and (later) eviction.
+pub fn now_rfc3339_micros() -> String {
+    Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SourceRecord {
     pub id: String,
@@ -196,6 +205,125 @@ pub async fn find_note_by_match_key(pool: &DbPool, key: &str) -> Result<Option<N
         .fetch_optional(pool)
         .await?;
     Ok(row.map(row_to_note))
+}
+
+/// Lightweight note projection for the LLM-wiki `index.md` catalog (Build-12).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct NoteSummary {
+    pub entity_type: String,
+    pub name: String,
+    pub match_key: String,
+    pub lede: Option<String>,
+}
+
+/// Live notes as catalog summaries for `index.md`, ordered for stable rendering.
+/// Archived notes (`entity_type` prefixed `archive-`) are excluded — their files
+/// are removed from the live wiki, so listing them would dangle.
+pub async fn all_note_summaries(pool: &DbPool) -> Result<Vec<NoteSummary>> {
+    let rows = sqlx::query_as::<_, NoteSummary>(
+        "SELECT entity_type, name, match_key, lede FROM notes \
+         WHERE entity_type NOT LIKE 'archive-%' ORDER BY entity_type, name",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Bump `last_accessed_at` to now for the given note ids (Build-13). Called ONLY
+/// by the user-facing MCP read tools — never by internal reads — so the cold/hot
+/// signal stays meaningful for the crawl and eviction. Best-effort.
+pub async fn touch_access(pool: &DbPool, ids: &[String]) -> Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    sqlx::query("UPDATE notes SET last_accessed_at = $1 WHERE id = ANY($2)")
+        .bind(now_rfc3339_micros())
+        .bind(ids)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Set/clear a note's conflict flag (Build-14 semantic lint). Setting stamps
+/// `conflicts_updated_at = now`; clearing resets it to NULL (no lingering stamp
+/// on a note with no conflicts).
+pub async fn set_conflict(pool: &DbPool, note_id: &str, has: bool) -> Result<()> {
+    sqlx::query(
+        "UPDATE notes SET has_conflicts = $1, \
+         conflicts_updated_at = CASE WHEN $1 = 1 THEN $2 ELSE NULL END WHERE id = $3",
+    )
+    .bind(if has { 1_i64 } else { 0_i64 })
+    .bind(now_rfc3339())
+    .bind(note_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Live notes (archived excluded) changed since the `(updated_at, id)` keyset
+/// cursor (exclusive), oldest first, capped at `limit` — the incremental
+/// work-list for the semantic lint (Build-14). A `None` cursor means "from the
+/// beginning" (first-run backlog). Keyset pagination on `(updated_at, id)` (not
+/// a bare `updated_at >`) so notes sharing a timestamp are never skipped at the
+/// batch boundary.
+pub async fn notes_changed_since(
+    pool: &DbPool,
+    cursor: Option<(&str, &str)>,
+    limit: i64,
+) -> Result<Vec<NoteRecord>> {
+    let rows = match cursor {
+        Some((wm_updated, wm_id)) => {
+            sqlx::query(
+                "SELECT * FROM notes WHERE entity_type NOT LIKE 'archive-%' \
+                 AND (updated_at, id) > ($1, $2) \
+                 ORDER BY updated_at ASC, id ASC LIMIT $3",
+            )
+            .bind(wm_updated)
+            .bind(wm_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            sqlx::query(
+                "SELECT * FROM notes WHERE entity_type NOT LIKE 'archive-%' \
+                 ORDER BY updated_at ASC, id ASC LIMIT $1",
+            )
+            .bind(limit)
+            .fetch_all(pool)
+            .await?
+        }
+    };
+    Ok(rows.into_iter().map(row_to_note).collect())
+}
+
+/// Live note ids (archived excluded) ordered HOTTEST-first by last access, for
+/// the crawl to fill the bounded resident set most-recently-used first (Build-15
+/// eviction). Never-accessed notes (NULL) sort last (coldest).
+pub async fn live_note_ids_by_access_desc(pool: &DbPool) -> Result<Vec<String>> {
+    // Warmth = COALESCE(last_accessed_at, updated_at): a never-read note falls
+    // back to its update time, so freshly-captured notes are HOT (not coldest),
+    // and the `id` tiebreaker makes ordering deterministic when timestamps tie
+    // (e.g. the migration backfill stamped every row identically).
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM notes WHERE entity_type NOT LIKE 'archive-%' \
+         ORDER BY COALESCE(last_accessed_at, updated_at) DESC, id DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(ids)
+}
+
+/// Live note ids (archived excluded) ordered coldest-first by last access, for
+/// the crawl to process oldest-touched notes first (Build-13).
+pub async fn live_note_ids_by_access(pool: &DbPool) -> Result<Vec<String>> {
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM notes WHERE entity_type NOT LIKE 'archive-%' \
+         ORDER BY last_accessed_at ASC NULLS FIRST",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(ids)
 }
 
 fn row_to_note(row: sqlx::postgres::PgRow) -> NoteRecord {

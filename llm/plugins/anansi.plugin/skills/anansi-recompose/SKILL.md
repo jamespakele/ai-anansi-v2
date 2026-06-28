@@ -73,6 +73,18 @@ One file: `output/{slug}/{slug}-recompose.md`.
 
 ## Process
 
+### Step 0 — Try the local wiki first (if enabled)
+
+If the local wiki exists at `~/llm-wiki/`, delegate to `wiki-recompose`
+first. The wiki has the outline and entity files — no MCP call needed.
+
+1. Read `../wiki-recompose/SKILL.md`.
+2. Execute it with the source slug or title.
+3. If the outline file exists and entities are found → return the
+   recomposed document. No server trip needed.
+4. If the outline file doesn't exist (evicted or never written locally)
+   → fall through to Step 1 (database path below).
+
 ### Step 1 — Resolve the source
 
 Call `anansi_search` with the user's identifier. Filter to source records. Confirm a single match. Capture:
@@ -82,6 +94,8 @@ Call `anansi_search` with the user's identifier. Filter to source records. Confi
 - `outline_note_id` (the note created by ingest holding the TOC)
 
 If `outline_note_id` is missing (older ingest predating outline-note creation), stop and tell the user. v2 may add a contribution-walk fallback; v1 requires the outline note.
+
+---
 
 ### Step 2 — Get the outline from the database
 
@@ -118,9 +132,11 @@ For each matched line:
 2. **Parse the type-tag.**
    - `[type:slug]` form → use `slug` as the canonical lookup key.
    - `[type]` form → use `Name` as the lookup key, scoped to this `source_id`.
-3. **Look up the entity in the vault.**
-   - Slug form: `anansi_get` by slug (or `anansi_search` filtered to this `source_id` plus the slug).
-   - Name form: `anansi_search` filtered to this `source_id`, query the `Name`, type filter for disambiguation.
+3. **Look up the entity — wiki-first, then the database.**
+   - **Wiki first:** try the local LLM-wiki file `/home/pakele/llm-wiki/<slug>.<entity_type>.md` (slug = the `[type:slug]` slug, or the `Name` lowercased with non-alphanumeric → hyphens). The wiki is the durable markdown projection of the database — reading it honors "database is the source" (it is **not** the forbidden `output/` scaffolding). A hit gives `lede`/`why`/`content` + `## Connections` with no MCP call. See `references/wiki-first.md`.
+   - **Fall back to the database on any miss** (no `/home/pakele/llm-wiki`, no file, or evicted):
+     - Slug form: `anansi_get` by slug (or `anansi_search` filtered to this `source_id` plus the slug).
+     - Name form: `anansi_search` filtered to this `source_id`, query the `Name`, type filter for disambiguation.
 4. **Pull entity fields:** `lede`, `why` (may be absent), `content`, `edges` (if any).
 5. **Append a chapter** to the in-memory recompose body (Step 4 format).
 

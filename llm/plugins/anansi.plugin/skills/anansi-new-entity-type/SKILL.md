@@ -121,22 +121,18 @@ confirmation or edits before writing to disk.
 
 2. **Write to canonical location:**
    ```
-   llm/plugins/anansi.plugin/references/templates/<filename>
+   llm/plugins/anansi-config.plugin/references/templates/<filename>
    ```
 
-3. **Sync vendored mirrors** — copy to:
-   ```
-   llm/plugins/anansi.plugin/skills/para-resource-entities/references/templates/<filename>
-   llm/plugins/anansi.plugin/skills/sb-atomize/references/templates/<filename>
-   ```
-
-4. **Verify** all three copies are byte-identical.
+3. **No mirrors needed.** Templates are loaded from the database at runtime.
+   The disk copy in `anansi-config.plugin/references/templates/` is the single canonical location.
 
 ### Step 6 — Post-creation guidance
 
 Tell the user:
 
-> ✅ Template `<filename>` created and synced to 3 locations.
+> ✅ Template `<filename>` created in `llm/plugins/anansi-config.plugin/references/templates/`.
+> Rebuild and restart the Anansi server, or run `anansi_reload_templates` if you maintain a DB override.
 >
 > **To make this available to the MCP server:**
 > - The LLM skills (sb-atomize, para-resource-entities) will pick up the

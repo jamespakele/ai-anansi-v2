@@ -13,6 +13,8 @@ pub struct Config {
     pub pipeline: PipelineConfig,
     #[serde(default)]
     pub inbox: InboxConfig,
+    #[serde(default)]
+    pub wiki: WikiConfig,
     /// PostgreSQL connection URL — overridden by DATABASE_URL env var at load time.
     #[serde(default = "default_database_url")]
     pub database_url: String,
@@ -30,7 +32,7 @@ pub struct PathsConfig {
 
 fn default_web_dir() -> PathBuf { PathBuf::from("anansi/web") }
 fn default_rules_dir() -> PathBuf { PathBuf::from("anansi/%Rules") }
-fn default_templates_dir() -> PathBuf { PathBuf::from("llm/plugins/anansi.plugin/references/templates") }
+fn default_templates_dir() -> PathBuf { PathBuf::from("llm/plugins/anansi-config.plugin/references/templates") }
 fn default_database_url() -> String {
     std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://anansi:anansi@localhost:5432/anansi".to_string())
@@ -179,7 +181,91 @@ impl Default for Config {
             server: ServerConfig::default(),
             pipeline: PipelineConfig::default(),
             inbox: InboxConfig::default(),
+            wiki: WikiConfig::default(),
             database_url: default_database_url(),
+        }
+    }
+}
+
+// ─── LLM-Wiki (Build-12) ──────────────────────────────────────────────────────
+
+/// File-native projection of the knowledge graph (Karpathy LLM-wiki pattern).
+/// When enabled, successful captures are dual-written from canonical Postgres
+/// rows into markdown files under `dir`. Postgres remains the source of truth.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WikiConfig {
+    /// Whether the wiki projection is written on each capture (default false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Root directory for the wiki files (default "/data/llm-wiki").
+    #[serde(default = "default_wiki_dir")]
+    pub dir: String,
+    /// Whether the background anansi-crawl maintenance task runs (default false).
+    /// Requires `enabled = true`.
+    #[serde(default)]
+    pub crawl_enabled: bool,
+    /// Crawl background-task interval in seconds (default 3600).
+    #[serde(default = "default_crawl_interval_secs")]
+    pub crawl_interval_secs: u64,
+    /// Whether the LLM semantic-lint phase runs during the crawl (default false).
+    /// Requires `enabled = true` and a configured LLM backend.
+    #[serde(default)]
+    pub lint_enabled: bool,
+    /// Max notes analyzed per lint pass — bounds LLM cost (default 25).
+    #[serde(default = "default_lint_batch_max")]
+    pub lint_batch_max: u64,
+    /// Tipping-point cap: target max total wiki size in MB before the crawl
+    /// evicts the coldest notes' files. Soft cap — may overshoot by up to one
+    /// note's size (sizes are measured after each write). 0 = unlimited (default).
+    #[serde(default)]
+    pub max_mb: u64,
+    /// Tipping-point cap: max number of resident note files before eviction.
+    /// 0 = unlimited (default).
+    #[serde(default)]
+    pub max_notes: u64,
+}
+
+fn default_wiki_dir() -> String { "~/llm-wiki".to_string() }
+
+/// Expand a leading `~` / `~/` in a path to the OS home dir. Dependency-free:
+/// `$HOME` (Linux/macOS) then `%USERPROFILE%` (Windows). If neither is set, the
+/// path is returned unchanged (so the misconfig is visible, not fabricated).
+/// Only a bare `~`/`~/` prefix is expanded; `~user` is left as-is.
+fn expand_home(path: &str) -> String {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(|h| h.to_string_lossy().into_owned());
+    expand_home_with(path, home.as_deref())
+}
+
+/// Pure core of `expand_home` with the home dir injected (testable).
+fn expand_home_with(path: &str, home: Option<&str>) -> String {
+    let home = match home {
+        Some(h) if !h.is_empty() => h,
+        _ => return path.to_string(),
+    };
+    if path == "~" {
+        home.to_string()
+    } else if let Some(rest) = path.strip_prefix("~/") {
+        Path::new(home).join(rest).to_string_lossy().into_owned()
+    } else {
+        path.to_string()
+    }
+}
+fn default_crawl_interval_secs() -> u64 { 3600 }
+fn default_lint_batch_max() -> u64 { 25 }
+
+impl Default for WikiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            dir: default_wiki_dir(),
+            crawl_enabled: false,
+            crawl_interval_secs: default_crawl_interval_secs(),
+            lint_enabled: false,
+            lint_batch_max: default_lint_batch_max(),
+            max_mb: 0,
+            max_notes: 0,
         }
     }
 }
@@ -289,6 +375,10 @@ impl Config {
             config.database_url = url;
         }
 
+        // Expand a leading `~`/`~/` in the wiki dir to the OS home, so a
+        // cross-platform `dir = "~/llm-wiki"` resolves everywhere downstream.
+        config.wiki.dir = expand_home(&config.wiki.dir);
+
         Ok(config)
     }
 
@@ -319,6 +409,20 @@ pub fn resolve_openrouter_api_key(cfg: &OpenRouterConfig) -> anyhow::Result<Stri
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn expand_home_resolves_tilde() {
+        assert_eq!(expand_home_with("~/llm-wiki", Some("/home/pakele")), "/home/pakele/llm-wiki");
+        assert_eq!(expand_home_with("~", Some("/Users/james")), "/Users/james");
+        // Absolute and non-tilde relative paths are untouched.
+        assert_eq!(expand_home_with("/data/llm-wiki", Some("/home/pakele")), "/data/llm-wiki");
+        assert_eq!(expand_home_with("relative/dir", Some("/home/pakele")), "relative/dir");
+        // `~user` is not expanded.
+        assert_eq!(expand_home_with("~bob/x", Some("/home/pakele")), "~bob/x");
+        // No home → left literal, not fabricated.
+        assert_eq!(expand_home_with("~/llm-wiki", None), "~/llm-wiki");
+        assert_eq!(expand_home_with("~/llm-wiki", Some("")), "~/llm-wiki");
+    }
 
     #[test]
     fn load_example_config() {

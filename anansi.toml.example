@@ -98,3 +98,54 @@ read_only = false
 # skills_dir = "/data/skills"      # mount point for r2-anansi.plugin/
 # llm_backend = "gemini"           # "gemini" | "openrouter" | "codex" | "ollama"
 
+
+# ─── LLM-Wiki (Build-12) ──────────────────────────────────────────────────────
+# A file-native projection of the knowledge graph following the Karpathy
+# llm-wiki pattern. When enabled, every successful capture is DUAL-WRITTEN: it
+# still writes PostgreSQL (the source of truth), then projects the affected
+# notes from canonical DB rows into markdown files under `dir`:
+#   <slug>.<entity_type>.md   one file per note (YAML frontmatter + [[wikilinks]])
+#   index.md                  catalog of all notes, grouped by entity_type
+#   log.md                    append-only ingest journal
+#
+# Wiki writes are non-authoritative and non-fatal: a failure is logged and never
+# rolls back or fails the underlying DB write.
+#
+# `dir` — where the wiki files live. A leading `~`/`~/` expands to the OS home
+# (`$HOME` on Linux/macOS, `%USERPROFILE%` on Windows), so `~/llm-wiki` resolves
+# to /home/<user>/llm-wiki, /Users/<user>/llm-wiki, or C:\Users\<user>\llm-wiki.
+# Default: `~/llm-wiki` (local, Obsidian-readable, beside your PARA folders).
+#   • Local install: keep `~/llm-wiki`. Rebuild from Postgres with `anansi2 wiki init`
+#     (or `anansi2 wiki rebuild` to wipe + regenerate).
+#   • Containerized (Docker): set `dir = "/data/llm-wiki"` so it lands on the
+#     ./data:/data persistent mount (the container's home is not persisted). For a
+#     LOCAL copy from a remote/VPS anansi, use the `anansi-init-wiki` skill instead.
+#
+# anansi-crawl (Build-13): a background maintenance pass that reconciles the wiki
+# against canonical Postgres state — recreates missing/stale note files, rebuilds
+# index.md, and garbage-collects orphan files no live note backs. Also runnable
+# on demand via the `anansi_wiki_crawl` MCP tool. Requires enabled = true.
+#
+# LLM semantic lint (Build-14): an analysis phase of the crawl that asks the
+# configured LLM to flag contradictions (sets has_conflicts), stale claims,
+# under-linked notes, and data gaps — writing a browsable lint.md. Incremental
+# (only notes changed since the last run, capped at lint_batch_max per pass) so
+# cost stays bounded. Requires enabled = true and an LLM backend. Also runnable
+# on demand via the `anansi_wiki_lint` MCP tool.
+#
+# Tipping-point eviction (Build-15): bound the wiki to the hottest notes. The
+# crawl keeps the most-recently-accessed notes that fit under max_mb (total size)
+# and/or max_notes (file count) — whichever cap is hit first — and evicts the
+# rest (deletes their files). Eviction is lossless: evicted notes still resolve
+# via anansi_get/search from Postgres; reading one re-warms it for the next crawl.
+# Both default to 0 = unlimited.
+#
+# [wiki]
+# enabled = true
+# dir = "~/llm-wiki"          # local default; containers: "/data/llm-wiki"
+# crawl_enabled = true
+# crawl_interval_secs = 3600
+# lint_enabled = true
+# lint_batch_max = 25
+# max_mb = 100        # 0 = unlimited
+# max_notes = 5000    # 0 = unlimited
