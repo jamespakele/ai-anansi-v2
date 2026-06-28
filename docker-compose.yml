@@ -13,7 +13,7 @@ services:
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5432:5432" # SSH tunnel access only — not publicly exposed
+      - "127.0.0.1:5433:5432" # SSH tunnel access only — not publicly exposed
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U anansi -d anansi"]
       interval: 5s
@@ -39,11 +39,6 @@ services:
       # Overrides the skills baked into the image with your live claude-cowork skills.
       # Remove this line if you want the image's bundled skills instead.
       - ./claude-cowork/plugins/anansi.plugin/skills:/data/skills:ro
-      # LLM-wiki: file-native projection of the knowledge graph (Karpathy pattern).
-      # The container writes wiki files to /data/llm-wiki (as configured in
-      # anansi/anansi.toml); this bind mount makes them accessible at ~/llm-wiki
-      # on the host for Obsidian browsing.
-      - ~/llm-wiki:/data/llm-wiki
     environment:
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
       - ANANSI_SKILL_TOKEN=${ANANSI_SKILL_TOKEN:-}
