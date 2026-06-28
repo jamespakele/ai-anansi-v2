@@ -22,10 +22,11 @@ services:
     restart: unless-stopped
 
   anansi:
-    build:
-      context: .
-      args:
-        GIT_SHA: ${GIT_SHA:-unknown}
+    # Prod: pull the pre-built image from GHCR (built by the publish job).
+    # GIT_SHA (full commit sha) is injected via the deploy .env, matching the
+    # full-sha image tag pushed by .github/workflows/deploy.yml. A unique tag
+    # per commit means Docker always pulls fresh — no pull_policy needed.
+    image: ghcr.io/jamespakele/anansi2:${GIT_SHA}
     dns_search: [] # prevent Tailscale search domain from breaking Docker DNS
     # Allows the container to reach Ollama running on the host machine.
     extra_hosts:
