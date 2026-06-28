@@ -1,7 +1,7 @@
 /// Inbox watcher — polls a directory and runs the full skill pipeline on each file.
 ///
 /// Prompts are assembled at runtime from the live skill files in `skills_dir`, so
-/// any edits you make in claude-cowork are picked up automatically without a rebuild.
+/// any edits you make in llm/plugins are picked up automatically without a rebuild (dev, via bind mount).
 ///
 /// Archive layout per run:
 ///   /data/archive/<slug>-<YYYYMMDD-HHmmss>/

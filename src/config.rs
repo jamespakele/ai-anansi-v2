@@ -121,10 +121,10 @@ pub struct InboxConfig {
     /// How often the queue watcher polls queue_dir (default 10s)
     #[serde(default = "default_queue_poll_interval_secs")]
     pub queue_poll_interval_secs: u64,
-    /// Root directory of the r2-anansi plugin skills tree.
+    /// Root directory of the anansi plugin skills tree.
     /// Expects sub-directories: para-projects-areas/, para-resource-entities/, sb-atomize/
     /// each containing a SKILL.md and a references/ sub-directory.
-    /// In Docker: mount ./claude-cowork/plugins/r2-anansi.plugin:/data/skills:ro
+    /// In Docker prod: skills bake to /app/skills (default skills_dir); dev mounts ./llm/plugins/anansi.plugin/skills -> /data/skills.
     #[serde(default = "default_skills_dir")]
     pub skills_dir: String,
     /// Polling interval in seconds (default 30)
