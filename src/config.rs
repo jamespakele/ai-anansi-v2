@@ -32,7 +32,7 @@ pub struct PathsConfig {
 
 fn default_web_dir() -> PathBuf { PathBuf::from("anansi/web") }
 fn default_rules_dir() -> PathBuf { PathBuf::from("anansi/%Rules") }
-fn default_templates_dir() -> PathBuf { PathBuf::from("llm/plugins/anansi.plugin/references/templates") }
+fn default_templates_dir() -> PathBuf { PathBuf::from("llm/plugins/anansi-config.plugin/references/templates") }
 fn default_database_url() -> String {
     std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://anansi:anansi@localhost:5432/anansi".to_string())

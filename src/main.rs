@@ -21,48 +21,48 @@ use anansi2::wiki::WikiStore;
 // Embedded seed files (compile-time include_str!)
 // ---------------------------------------------------------------------------
 
-// Templates (37 files) — canonical source: llm/plugins/anansi.plugin/references/templates/
+// Templates (37 files) — canonical source: llm/plugins/anansi-config.plugin/references/templates/
 // utility
-const TMPL_ACTION_ITEM_LIST: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/action_item_list.md");
-const TMPL_ANANSI_CONFIG: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/anansi-config.md");
-const TMPL_CONTAINER: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/container.md");
-const TMPL_CONTEXT: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/context.md");
-const TMPL_EVENT: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/event.md");
-const TMPL_MEMO: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/memo.md");
-const TMPL_OUTLINE: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/outline.md");
-const TMPL_SOCIAL_POST: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/social-post.md");
-const TMPL_SPEECH: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/speech.md");
-const TMPL_TASK: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/task.md");
+const TMPL_ACTION_ITEM_LIST: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/action_item_list.md");
+const TMPL_ANANSI_CONFIG: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/anansi-config.md");
+const TMPL_CONTAINER: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/container.md");
+const TMPL_CONTEXT: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/context.md");
+const TMPL_EVENT: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/event.md");
+const TMPL_MEMO: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/memo.md");
+const TMPL_OUTLINE: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/outline.md");
+const TMPL_SOCIAL_POST: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/social-post.md");
+const TMPL_SPEECH: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/speech.md");
+const TMPL_TASK: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/task.md");
 // identity (entity-*)
-const TMPL_AREA: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/entity-area.md");
-const TMPL_BOOK: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/entity-book.md");
-const TMPL_FLIGHT: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/entity-flight.md");
-const TMPL_FLIGHT_OUTPUT: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/entity-flight-output.md");
-const TMPL_MISSION: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/entity-mission.md");
-const TMPL_NOTE: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/entity-note.md");
-const TMPL_OPERATION: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/entity-operation.md");
-const TMPL_ORGANIZATION: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/entity-organization.md");
-const TMPL_PERSON: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/entity-person.md");
-const TMPL_PROJECT: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/entity-project.md");
-const TMPL_TOPIC: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/identity-topic.md");
+const TMPL_AREA: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-area.md");
+const TMPL_BOOK: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-book.md");
+const TMPL_FLIGHT: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-flight.md");
+const TMPL_FLIGHT_OUTPUT: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-flight-output.md");
+const TMPL_MISSION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-mission.md");
+const TMPL_NOTE: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-note.md");
+const TMPL_OPERATION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-operation.md");
+const TMPL_ORGANIZATION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-organization.md");
+const TMPL_PERSON: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-person.md");
+const TMPL_PROJECT: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-project.md");
+const TMPL_TOPIC: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/identity-topic.md");
 // source family
-const TMPL_COMPANY_UPDATE: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/company-update.md");
-const TMPL_EMAIL_THREAD: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/email-thread.md");
-const TMPL_MEETING_SUMMARY: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/meeting-summary.md");
-const TMPL_NEWSLETTER: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/newsletter.md");
-const TMPL_PRESENTATION: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/presentation.md");
-const TMPL_RESEARCH_PAPER: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/research-paper.md");
-const TMPL_YOUTUBE_VIDEO: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/youtube-video.md");
+const TMPL_COMPANY_UPDATE: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/company-update.md");
+const TMPL_EMAIL_THREAD: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/email-thread.md");
+const TMPL_MEETING_SUMMARY: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/meeting-summary.md");
+const TMPL_NEWSLETTER: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/newsletter.md");
+const TMPL_PRESENTATION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/presentation.md");
+const TMPL_RESEARCH_PAPER: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/research-paper.md");
+const TMPL_YOUTUBE_VIDEO: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/youtube-video.md");
 // content_unit family
-const TMPL_BOOK_CHAPTER: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/book-chapter.md");
-const TMPL_BOOK_SECTION: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/book-section.md");
-const TMPL_COMPANY_UPDATE_ITEM: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/company-update-item.md");
-const TMPL_EMAIL_EXCHANGE: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/email-exchange.md");
-const TMPL_MEETING_TOPIC_DISCUSSION: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/meeting-topic-discussion.md");
-const TMPL_NEWSLETTER_ITEM: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/newsletter-item.md");
-const TMPL_PRESENTATION_SLIDE: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/presentation-slide.md");
-const TMPL_RESEARCH_SECTION: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/research-section.md");
-const TMPL_YOUTUBE_CHAPTER: &str = include_str!("../llm/plugins/anansi.plugin/references/templates/youtube-chapter.md");
+const TMPL_BOOK_CHAPTER: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/book-chapter.md");
+const TMPL_BOOK_SECTION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/book-section.md");
+const TMPL_COMPANY_UPDATE_ITEM: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/company-update-item.md");
+const TMPL_EMAIL_EXCHANGE: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/email-exchange.md");
+const TMPL_MEETING_TOPIC_DISCUSSION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/meeting-topic-discussion.md");
+const TMPL_NEWSLETTER_ITEM: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/newsletter-item.md");
+const TMPL_PRESENTATION_SLIDE: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/presentation-slide.md");
+const TMPL_RESEARCH_SECTION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/research-section.md");
+const TMPL_YOUTUBE_CHAPTER: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/youtube-chapter.md");
 
 // Rules (4 files)
 const RULE_ATOMICITY: &str = include_str!("../%Rules/%Atomicity.md");

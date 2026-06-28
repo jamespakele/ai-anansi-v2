@@ -57,7 +57,22 @@ Edges:
 
 ---
 
-## Step 1 — Validate inputs
+## Step 1 — Wiki check (runs first if wiki is enabled)
+
+If the local wiki exists at `~/llm-wiki/` and the edge references use
+**match_keys** (`type:slug`) instead of UUIDs, delegate to `wiki-relate`
+first to add the `[[wikilink]]` locally:
+
+1. Read `../wiki-relate/SKILL.md`.
+2. Execute it with the source match_key, relation, and target match_key.
+3. Then proceed to Step 2 to also write the edge on the server.
+
+If the edge references use UUIDs only, skip the wiki step — match_keys
+would need a DB lookup to resolve.
+
+---
+
+## Step 2 — Validate inputs
 
 For each edge (single or batch):
 
@@ -71,7 +86,7 @@ relation type, proceed without warning.
 
 ---
 
-## Step 2 — Write edges
+## Step 3 — Write edges
 
 For each edge, call `anansi_relate`:
 
@@ -99,7 +114,7 @@ Do not abort the batch.
 
 ---
 
-## Step 3 — Report
+## Step 4 — Report
 
 **For a single edge:**
 

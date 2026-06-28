@@ -194,7 +194,7 @@ async fn process_file(config: &Arc<Config>, _pool: &DbPool, source_path: &Path) 
 
         let opts = InferOpts {
             temperature: 0.1,
-            max_tokens: 8192,
+            max_tokens: 65536,
             json_mode: false,
         };
         let (r1a, r1b) = tokio::join!(
@@ -267,7 +267,7 @@ async fn process_file(config: &Arc<Config>, _pool: &DbPool, source_path: &Path) 
 
     let opts2 = InferOpts {
         temperature: 0.15,
-        max_tokens: 16384,
+        max_tokens: 65536,
         json_mode: false,
     };
     match llm

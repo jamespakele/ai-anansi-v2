@@ -34,3 +34,7 @@ error-report*.md
 data/
 *Zone.Identifier*
 *:Zone*
+
+# generated plugin mirror & runtime output (not source)
+/claude-cowork
+/output

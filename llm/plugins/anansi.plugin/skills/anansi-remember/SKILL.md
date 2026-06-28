@@ -15,9 +15,22 @@ description: >
   note:", "qn:", "jot this down", "just save this", "stash this", "note to
   self".
 argument-hint: "[file path, pasted content, atomized .md, or entity facts]"
+config:
+  # processing: "server" — upload raw content to server inbox, fire and forget.
+  #   The server runs the full pipeline (para-process → sb-atomize → ingest → wiki).
+  #   Fastest path. No client-side LLM work. Best for large files, batches, URLs.
+  #
+  # processing: "local" — process everything client-side (current behavior).
+  #   The agent extracts, identifies entities, compresses, then calls
+  #   anansi_ingest_atomized + wiki-ingest-atomized. Slower but reviewable.
+  processing: server
 ---
 
 # anansi-remember
+
+**Execution protocol:** Execute every step below in order. After all steps,
+run the [Done](#done) checklist. If any check fails, re-run with the errors
+as feedback. Repeat until all checks pass or 3 attempts. Do not skip steps.
 
 The single entry point for committing anything to the Anansi knowledge base.
 
@@ -47,8 +60,26 @@ to the right path. Three paths, one skill. The user never picks.
 
 ## Routing — Step 1 (always run this first)
 
-Classify the input by asking three questions in order. Stop at the first
-match.
+### Step 0 — Check processing mode
+
+Read the `config.processing` flag from this skill's frontmatter:
+
+| Mode | Behavior |
+|---|---|
+| `server` (default) | Upload raw content to server inbox. Fire and forget. The server runs the full pipeline. Fastest path. |
+| `local` | Process client-side (current Path A/B/C). Reviewable but slower. |
+
+**If `processing: server`:**
+
+1. Read `../anansi-ingest-file/SKILL.md`.
+2. Execute it with the same input (file path, URL, or pasted text).
+3. Return its confirmation. **Stop here** — the server handles everything.
+
+**If `processing: local`:**
+
+Fall through to the Q0–Q3 classification below (current Path A/B/C behavior).
+
+---
 
 ### Q0: Is this a quick note?
 
@@ -138,7 +169,18 @@ If the input was a file, leave it where it is. Hold its absolute path as
    - `output/{slug}/{slug}-toc.md` — the unified manifest
      (this is the `para_toc` payload)
 
-### B-iv — Ingest
+### B-iv — Local wiki write (optional, on by default)
+
+If the local LLM wiki is enabled (default: yes), write the atomized content
+to `~/llm-wiki/` before sending to the server:
+
+1. Read `../wiki-ingest-atomized/SKILL.md`.
+2. Execute it with `ATOMIZED_CONTENT` as input.
+
+This writes each entity as a markdown file in `~/llm-wiki/` and updates
+`index.md` / `log.md`. Pure file I/O — no server call.
+
+### B-v — Ingest
 
 Hold:
 
@@ -175,13 +217,16 @@ and optionally the matching `{slug}-toc.md`.
 2. If a TOC accompanies it, hold as **PARA_TOC**. Otherwise null.
 3. If a source-document path is in context (e.g. from a prior pipeline
    run in the same conversation), hold as **SOURCE_PATH**. Otherwise null.
-4. Call `anansi_ingest_atomized` with whichever of the four arguments
+4. **Local wiki write (optional, on by default):** Read and execute
+   `../wiki-ingest-atomized/SKILL.md` with `ATOMIZED_CONTENT` to
+   write each entity to `~/llm-wiki/`.
+5. Call `anansi_ingest_atomized` with whichever of the four arguments
    are non-null:
    - `content` = ATOMIZED_CONTENT (always)
    - `para_toc` = PARA_TOC (when available)
    - `source_path` = SOURCE_PATH (when available)
    - `source` = `"skill"` (always)
-5. Proceed to [Report](#report).
+6. Proceed to [Report](#report).
 
 If the user only gives you the TOC, stop and ask for the atomized file —
 the TOC alone is a manifest, not ingestible content.
@@ -199,6 +244,7 @@ directly. No additional wrapping.
 *Anansi* — {source title from atomize header, or filename}
 • Path: {B: source → atomized → ingested | C: pre-atomized → ingested}
 • Output dir: {output/{slug}/ for Path B; n/a for Path C}
+• Local wiki: ~/llm-wiki/ (written before server ingest)
 • Notes created: {note_count from response}
 • Source ID: {source_id from response}
 • Outline note: {outline_note_id from response}
@@ -254,3 +300,12 @@ server parses the atomized block set, applies the per-type field mapping
 internally, creates the outline note, and writes hierarchy edges. The skill
 stays out of the parsing business so field-mapping bugs can't happen on the
 client side.
+
+## Done
+
+- [ ] Input classified correctly (quick note / atomized / single entity / multi-entity)
+- [ ] Processing mode checked (`server` or `local`)
+- [ ] If `processing: server`: file uploaded to inbox, confirmation received
+- [ ] If `processing: local`: all pipeline stages completed without error
+- [ ] If `processing: local`: `wiki-ingest-atomized` called before `anansi_ingest_atomized`
+- [ ] Report generated with source title, path, notes created, source ID

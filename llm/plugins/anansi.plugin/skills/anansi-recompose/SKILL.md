@@ -73,6 +73,18 @@ One file: `output/{slug}/{slug}-recompose.md`.
 
 ## Process
 
+### Step 0 — Try the local wiki first (if enabled)
+
+If the local wiki exists at `~/llm-wiki/`, delegate to `wiki-recompose`
+first. The wiki has the outline and entity files — no MCP call needed.
+
+1. Read `../wiki-recompose/SKILL.md`.
+2. Execute it with the source slug or title.
+3. If the outline file exists and entities are found → return the
+   recomposed document. No server trip needed.
+4. If the outline file doesn't exist (evicted or never written locally)
+   → fall through to Step 1 (database path below).
+
 ### Step 1 — Resolve the source
 
 Call `anansi_search` with the user's identifier. Filter to source records. Confirm a single match. Capture:
@@ -82,6 +94,8 @@ Call `anansi_search` with the user's identifier. Filter to source records. Confi
 - `outline_note_id` (the note created by ingest holding the TOC)
 
 If `outline_note_id` is missing (older ingest predating outline-note creation), stop and tell the user. v2 may add a contribution-walk fallback; v1 requires the outline note.
+
+---
 
 ### Step 2 — Get the outline from the database
 

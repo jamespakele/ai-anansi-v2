@@ -332,7 +332,7 @@ extracted, stored, and merged. Each template has:
 
 ### Template storage hierarchy
 
-1. **Disk** — `llm/plugins/anansi.plugin/references/templates/` (compiled into binary via `include_str!`)
+1. **Disk** — `llm/plugins/anansi-config.plugin/references/templates/` (compiled into binary via `include_str!`)
 2. **DB** — `anansi_config` notes with `match_key: anansi_config:template:<entity_type>`
 3. **Runtime** — DB overrides disk. `anansi_reload_templates` refreshes from DB without restart.
 

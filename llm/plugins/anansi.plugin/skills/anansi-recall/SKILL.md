@@ -35,16 +35,20 @@ When ambiguous between keyword and semantic, run both and merge — deduplicate 
 
 ---
 
-## Step 0 — Try the local wiki first
+## Step 0 — Try the local wiki first (if enabled)
 
-Before touching the database, check the **local LLM-wiki** — a markdown mirror of the vault at `/home/pakele/llm-wiki` (full procedure in `references/wiki-first.md`). It absorbs read traffic from the DB and works offline.
+If the local wiki exists at `~/llm-wiki/`, delegate to `wiki-recall` first.
+The wiki is a markdown mirror of the vault — reading from it avoids an
+MCP call and works offline.
 
-- **Exact / named entity** → compute `<slug>.<entity_type>.md` (slug = name lowercased, non-alphanumeric → hyphens) and read it, or locate it via `/home/pakele/llm-wiki/index.md`. Hit → answer from the file (frontmatter + lede/why/content + `## Connections`), no MCP call.
-- **Keyword** → `grep` `/home/pakele/llm-wiki/*.md`.
-- **Semantic similarity or graph >1 hop** → skip the wiki (no file equivalent); go straight to the MCP tools below.
-- **Miss** (no `/home/pakele/llm-wiki` folder, no matching file, or note size-evicted) → fall through silently to Step 1. **The wiki never blocks an answer; always fall back to MCP.**
+1. Read `../wiki-recall/SKILL.md`.
+2. Execute it with the same query, defaulting to `--local` mode.
+3. If found → return the result. No MCP call needed.
+4. If not found → fall through to Step 1 (MCP tools below).
 
-Treat the wiki as a cache: it may lag the DB by a crawl interval and omits evicted cold notes. For "what's the very latest on X," prefer the MCP path.
+The wiki is a cache: it may lag the DB by a crawl interval and omits
+evicted cold notes. For "what's the very latest on X," skip the wiki
+check and go straight to Step 1.
 
 ---
 

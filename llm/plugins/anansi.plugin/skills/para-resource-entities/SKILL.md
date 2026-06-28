@@ -21,6 +21,10 @@ argument-hint: "[any text — email, transcript, meeting notes, article, prose]"
 
 # para-resource-entities
 
+**Execution protocol:** Execute every step below in order. After all steps,
+run the [Done](#done) checklist. If any check fails, re-run with the errors
+as feedback. Repeat until all checks pass or 3 attempts. Do not skip steps.
+
 A focused, deterministic Resources extractor and typer. One pass over any input → two output files, both ready to merge into a typed PARA TOC.
 
 This skill is the **Resources arm** of an atomization pipeline. It runs in parallel with `para-projects-areas` on the same raw input. The two skills do not coordinate at runtime; their outputs combine at the `para-toc` merge step.
@@ -340,3 +344,13 @@ Both files are still produced. `resources-typed.md` has the `## Resources` headi
 ## Why this matters
 
 Resources are the reference tier of PARA — things the user is interested in but not responsible for. People, organizations, books, concepts, referenced documents: these are the nodes that give the vault its connective tissue. Unlike Projects and Areas, where a phantom entry clutters an active-commitment list and erodes trust, a phantom Resource is low-cost — it sits in the vault until a merge or purge cleans it up. The cost asymmetry flips: a *missed* Resource is a broken edge in the knowledge graph, a person who was in the room but invisible, a book that shaped the thinking but left no trace. So this skill leans toward extraction when ambiguous. When the evidence is thin but the named thing is clearly present in the source, emit it at medium confidence with the evidence quote and let the vault's merge logic decide. The two-file output (typed fields + TOC, joined by `source_id`) pairs symmetrically with `para-projects-areas` so the full PARA scan is three focused passes instead of one omnibus reduction — PA discovery with a precision filter, Resource discovery with a recall filter, then smart-brevity compression. Field-set alignment with the canonical anansi entity templates means the skill's emitted blocks slot directly into the vault without a translation layer. Reach for it when recall is the failure mode you're tuning against, and accept that a medium-confidence entry is sometimes more useful than no entry at all.
+
+## Done
+
+- [ ] `resources-toc.md` and `resources-typed.md` both exist
+- [ ] TOC has `## 3. Discussion`, `## 4. Resources`, and `## Concepts` sections
+- [ ] Discussion entries have decimal addresses (3.1, 3.2, ...)
+- [ ] Resource entries have decimal addresses (4.1, 4.2, ...) with type tags
+- [ ] Each typed entity has a matching template assignment
+- [ ] Empty sections render as `_(none found)_` rather than being omitted
+- [ ] Both files share the same `source_id` and `generated_at` in frontmatter
