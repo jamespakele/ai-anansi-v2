@@ -84,11 +84,10 @@ read_only = false
 #   Stage 2:  sb-atomize
 #   Stage 3:  ingest_atomized → PostgreSQL
 #
-# Prompts are assembled at runtime from the live skill files in `skills_dir`, so
-# edits made in claude-cowork are picked up immediately — no rebuild needed.
-#
-# Docker volume mount (in docker-compose.yml):
-#   - ./claude-cowork/plugins/r2-anansi.plugin:/data/skills:ro
+# Skills are baked into the image at /app/skills (from llm/plugins via the Dockerfile).
+# Prod reads /app/skills (the default skills_dir) — no bind mount; rebuild the image to
+# update skills. For local-dev live editing, docker-compose.local.yml mounts
+# ./llm/plugins/anansi.plugin/skills -> /data/skills; set skills_dir = "/data/skills" there.
 #
 # [inbox]
 # enabled = true

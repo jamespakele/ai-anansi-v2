@@ -171,12 +171,12 @@ Enable in `anansi.toml`:
 enabled            = true
 watch_dir          = "/data/inbox"
 archive_dir        = "/data/archive"
-skills_dir         = "/data/skills"    # auto-mounted from claude-cowork plugin
+skills_dir         = "/app/skills"     # baked into the image (from llm/plugins); dev override mounts llm/plugins -> /data/skills
 poll_interval_secs = 30
 llm_backend        = "gemini"          # optional: overrides [llm] backend for inbox only
 ```
 
-Prompts are loaded at runtime from the live skill files in `claude-cowork/plugins/anansi.plugin/skills/` — editing a skill in Cowork takes effect on the next poll without a rebuild.
+Skills are baked into the image at `/app/skills` (from `llm/plugins` via the Dockerfile); prod reads `/app/skills` (rebuild to update). For local-dev live editing, `docker-compose.local.yml` mounts `llm/plugins/anansi.plugin/skills` -> `/data/skills` (set `skills_dir = "/data/skills"`).
 
 ---
 

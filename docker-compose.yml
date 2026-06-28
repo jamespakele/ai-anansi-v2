@@ -36,9 +36,10 @@ services:
       - "127.0.0.1:3738:3738"
     volumes:
       - ./data:/data
-      # Overrides the skills baked into the image with your live claude-cowork skills.
-      # Remove this line if you want the image's bundled skills instead.
-      - ./claude-cowork/plugins/anansi.plugin/skills:/data/skills:ro
+      # Skills are baked into the image at /app/skills (from llm/plugins via the Dockerfile).
+      # Prod reads /app/skills (the default skills_dir) — no bind mount; rebuild the image
+      # to update skills. For local-dev live editing, docker-compose.local.yml mounts
+      # ./llm/plugins/anansi.plugin/skills -> /data/skills.
     environment:
       - ANANSI_GEMINI_API_KEY=${ANANSI_GEMINI_API_KEY:-}
       - ANANSI_SKILL_TOKEN=${ANANSI_SKILL_TOKEN:-}
