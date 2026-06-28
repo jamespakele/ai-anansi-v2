@@ -176,7 +176,7 @@ happen (§4).
 
 ---
 
-## 6. Planned: deploy pre-built GHCR images instead of on-VPS build
+## 6. Deploy pre-built GHCR images (DONE — landed via `chore/ghcr-deploy` + the `d6e6211` prefix fix; see §8 for the incident)
 
 **Problem:** The VPS builds the anansi image from source on every deploy
 (`build: context: .` in the compose). This is the slow, CPU-heavy path and the
@@ -222,10 +222,60 @@ client machines (Receive-Only) — see `feat/sync` and `deploy/syncthing-bootstr
 
 ---
 
+## 8. GHCR tag-prefix incident — `sha-` prefix vs bare `${GIT_SHA}` (2026-06-28)
+
+**Symptom:** After merging `chore/ghcr-deploy` (switch the VPS from local
+build to pulling `ghcr.io/jamespakele/anansi2:${GIT_SHA}`), the VPS deploy
+failed:
+
+```
+Image ghcr.io/jamespakele/anansi2:6df3f3a6ef… Pulling
+… failed to resolve reference … not found
+Project build failed
+```
+
+The VPS tried to pull the bare full-sha tag `<sha>` but it didn't exist. The
+previous containers kept running (healthy), so production stayed up — only the
+new deploy failed.
+
+**Root cause:** `deploy.yml`'s `type=sha,format=long` was missing `prefix=`.
+`docker/metadata-action`'s default prefix for `type=sha` is `sha-`, so the
+published tag was `sha-<fullsha>` — but the compose references `${GIT_SHA}`
+(the bare full sha, no prefix). Tag mismatch → 404. (The `chore/ghcr-deploy`
+branch dropped `prefix=` when it changed `format=short` → `format=long`; the
+original `type=sha,prefix=,format=short` had `prefix=` to suppress the prefix.)
+
+**The misleading part — GH Actions showed `completed success`:** The
+`6df3f3a` run is green in GitHub Actions even though its VPS deploy failed.
+`publish` succeeded (it pushed `sha-<sha>` + `:latest`), and the `deploy`
+job's `hostinger/deploy-on-vps@v2` action reports success on the API POST
+being accepted (HTTP 2xx), NOT on the VPS container state. So the green check
+marked "deploy request accepted," not "image pulled + container running."
+This is the same class as recipe-base's Incident 9 (action green, site frozen).
+
+**Fix (`d6e6211`):** Add `prefix=` back: `type=sha,prefix=,format=long` → the
+tag is the bare full sha, matching `${GIT_SHA}`. Verified: the `d6e6211` deploy
+pulled `ghcr.io/jamespakele/anansi2:d6e62116e80e63d69ad36c376c79416c73394396`
+and the container now runs that image (`Up (healthy)`, reading `/app/skills`).
+
+**Lesson:** The image tag the compose asks the VPS to pull must **exist on
+GHCR and exactly match** — including prefix. Verify deploys by checking the
+VPS `.build.log` + the container's `Config.Image` (or the Hostinger VPS API),
+NOT the GitHub Actions green check (recipe-base Best Practice 5 / Incident 9).
+
+---
+
 ## Key takeaways
 
 - **"CI green" ≠ "deployed."** The GHCR publish job and the Hostinger VPS deploy
   are separate; a green publish doesn't mean the VPS containers are up.
+- **GH Actions "success" ≠ VPS deployed** — `hostinger/deploy-on-vps` reports
+  success on the API POST (HTTP 2xx), not the container state. The `6df3f3a`
+  run was green while its VPS pull 404'd. Verify via the VPS `.build.log` +
+  `docker inspect … Config.Image` (or the Hostinger VPS API).
+- **GHCR tag prefix must match `${GIT_SHA}`** — `docker/metadata-action`
+  `type=sha` defaults to a `sha-` prefix; use `prefix=` to suppress it if the
+  compose references the bare sha (§8).
 - **The Hostinger deploy syncs only a subset of files** (compose, Dockerfile,
   `.env`, `.env.example`) to `/docker/ai-anansi-v2`. It does NOT sync the repo
   tree — so bind-mounting repo paths that aren't in that subset yields empty
