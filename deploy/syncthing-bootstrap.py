@@ -120,6 +120,13 @@ def main() -> None:
     new_folder.set("label", FOLDER_LABEL)
     new_folder.set("path", CACHE)
     new_folder.set("type", "sendonly")  # Send-Only: this machine is the source
+    # Simple File Versioning: keep 5 versions, clean out after 7 days
+    ver = ET.SubElement(new_folder, "versioning")
+    ver.set("type", "simple")
+    ET.SubElement(ver, "param").set("key", "keep")
+    ver.findall("param")[-1].set("val", "5")
+    ET.SubElement(ver, "param").set("key", "cleanoutDays")
+    ver.findall("param")[-1].set("val", "7")
     dev = new_folder.find("device")
     if dev is not None:
         dev.set("id", local_dev_id)

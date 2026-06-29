@@ -160,6 +160,22 @@ curl -s -X POST http://127.0.0.1:8384/rest/config/folders \
 pushes wiki content back. If the folder already exists, `PUT
 /rest/config/folders/llm-wiki` instead.
 
+**Simple File Versioning** — keep 5 versions, clean out after 7 days.
+This prevents `.sync-conflict-*` clutter if a conflict somehow occurs:
+
+```
+curl -s -X PATCH http://127.0.0.1:8384/rest/config/folders/llm-wiki \
+  -H "X-API-Key: <local-apikey>" -H "Content-Type: application/json" \
+  -d '{"versioning": {"type": "simple", "params": {"keep": "5", "cleanoutDays": "7"}}}'
+```
+
+If the REST API doesn't support PATCH, use the CLI instead:
+```
+syncthing cli config folders llm-wiki versioning type simple
+syncthing cli config folders llm-wiki versioning params keep 5
+syncthing cli config folders llm-wiki versioning params cleanoutDays 7
+```
+
 ---
 
 ## Step 5 — Accept the device + share the folder on the VPS side
@@ -227,9 +243,29 @@ Wait ~30s for the connection + first scan, then check each:
    `0.0.0.0`, set the client's `listenAddress` to its Tailscale IP and
    restart, mirroring the server-side discipline.
 
+5. **Simple File Versioning is configured.**
+   `syncthing cli config folders llm-wiki`
+   → `"type": "simple"` with `keep: 5` and `cleanoutDays: 7`.
+
 ---
 
-## Step 7 — Report
+## Step 7 — Clean up stale sync-conflict files
+
+If this machine was previously synced without versioning, stale
+`.sync-conflict-*` files may have accumulated. Remove them:
+
+```
+find ~/llm-wiki -name '*.sync-conflict*' -type f -delete
+echo "Removed $(find ~/llm-wiki -name '*.sync-conflict*' -type f | wc -l) conflict files"
+```
+
+These are safe to delete — the originals are in the folder and the entities
+are in the Anansi database. With Simple File Versioning now enabled, future
+conflicts will be archived to `.stversions/` and auto-cleaned after 7 days.
+
+---
+
+## Step 8 — Report
 
 ```
 *sync-setup* — <this hostname>
@@ -237,6 +273,7 @@ Wait ~30s for the connection + first scan, then check each:
 • Local device ID: <this device id>
 • Remote (VPS) device ID: K44NMXC-V4IJG6A-PO3NPCD-TAOBEJV-WCO7KBF-D4ZUYU2-R34XIXL-BCVZRQQ
 • Folder: llm-wiki → ~/llm-wiki (receiveonly)
+• Versioning: simple (keep 5, cleanout 7d)
 • Transport: Tailscale (100.118.188.14:22000) — relay: no
 • Sample round-trip: pass
 • Reminder: ~/llm-wiki is VIEW-ONLY. Edits via anansi-remember / wiki-sync.
@@ -248,7 +285,8 @@ Wait ~30s for the connection + first scan, then check each:
 - [ ] This machine on the same Tailscale tailnet as the VPS
 - [ ] VPS device added on this machine with the Tailscale address (not `dynamic`/relay)
 - [ ] `llm-wiki` folder added on this machine with `type: receiveonly`
-- [ ] This machine accepted on the VPS and the `llm-wiki` folder shared with it
+- [ ] Simple File Versioning configured (keep 5, cleanout 7 days) on both sides
+- [ ] Stale `.sync-conflict-*` files cleaned up
 - [ ] Connection is over Tailscale (`connected: true`, address is the Tailscale IP, no relay)
 - [ ] Folder type is `receiveonly` on this machine (verified via REST, not just GUI)
 - [ ] Sample file round-trips (or probe created+deleted successfully)
