@@ -1,125 +1,106 @@
 ---
-name: wiki-sync
+name: wiki-rebuild
 description: >
-  Syncs a local wiki entity to or from the Anansi server. Reads the
-  entity's markdown file from ~/llm-wiki/, wraps it as an atomized block,
-  and calls anansi_ingest_atomized (master=wiki) or pulls from the server
-  and writes locally (master=anansi). Default: master=wiki (local first).
-argument-hint: "[match_key] [master=wiki|anansi]"
+  Full rebuild of the local ~/llm-wiki/ from canonical Postgres state.
+  Calls anansi_wiki_crawl to re-project every live note, regenerate
+  index.md with the current format, and remove orphan files. Use after
+  schema changes, index format changes, or to repair a corrupted wiki.
+  ⚠ Resource-intensive — may take a while on large wikis.
+argument-hint: "[--force]"
 ---
 
-# wiki-sync
+# wiki-rebuild
 
-**Execution protocol:** Execute every step below in order. After all steps,
-run the [Done](#done) checklist. If any check fails, re-run with the errors
-as feedback. Repeat until all checks pass or 3 attempts. Do not skip steps.
+Full rebuild of the local Karpathy-style LLM wiki from canonical Postgres state.
 
-Syncs a single entity between the local `~/llm-wiki/` and the Anansi server.
-
-Two directions:
-- **master=wiki** (default): read local file → build atomized block →
-  `anansi_ingest_atomized` → server gets the local version
-- **master=anansi**: `anansi_get` from server → write local file →
-  local wiki gets the server version
+Calls the `anansi_wiki_crawl` MCP tool to:
+1. **Re-project every live note** — re-reads every note from Postgres and
+   rewrites its wiki file with the current template format
+2. **Rebuild `index.md`** — regenerates the catalog with the current PARA
+   grouping (1. Projects, 2. Areas, 3. Resources, 4. Archives)
+3. **Remove orphan files** — deletes wiki files whose notes no longer exist
+4. **Append to `log.md`** — journals the crawl summary
 
 ---
 
 ## When to invoke
 
-- After `wiki-ingest-atomized` writes entities locally, to push them to
-  the server (`master=wiki`)
-- After a local edit to a wiki file, to sync the change to the server
-  (`master=wiki`)
-- To pull a server-side entity into the local wiki for offline reading
-  (`master=anansi`)
-- On demand: "sync product:okf to the server"
+- After a schema change (new entity_type fields, new template format)
+- After an index format change (like the PARA regrouping we just did)
+- When the wiki appears stale, corrupted, or out of sync with the server
+- On initial setup after enabling `[wiki] enabled = true`
+- User says "rebuild the wiki", "re-sync the wiki", "fix the wiki"
+
+Do **not** invoke for:
+- Adding a single note (use `anansi_capture` — the wiki updates automatically)
+- Reading from the wiki (use `wiki-recall`)
+
+---
+
+## ⚠ Resource warning
+
+This operation re-projects **every live note** in the database. On a wiki
+with thousands of notes, this means:
+
+- **N database queries** (one per note, plus edges)
+- **N file writes** (one per note file, plus index.md)
+- **Duration**: proportional to note count. A 1400-note wiki may take
+  30–60 seconds. Larger wikis scale linearly.
+
+The crawl is **idempotent and safe** — it reads from Postgres (the source
+of truth) and writes to the wiki (the projection). It will never lose data.
+If interrupted, re-run it — it will pick up where it left off.
 
 ---
 
 ## Inputs
 
-- **match_key** — e.g. `product:okf`, `person:andrej-karpathy`
-- **master** — `wiki` (default) or `anansi`
-
-### Master resolution order
-
-1. If the user explicitly says "sync to the server" or "push to anansi" →
-   `master=wiki`.
-2. If the user says "pull from the server" or "download from anansi" →
-   `master=anansi`.
-3. If the context makes it obvious (e.g. you just edited the local file
-   and now want to sync) → infer from context.
-4. If it's ambiguous → default to `master=wiki`. The server has
-   versioning and backups, so a bad sync can be rolled back there.
-   Local edits have no such safety net — default to pushing local
-   changes up rather than overwriting them.
+- **`--force`** — optional. Skip the confirmation prompt and proceed
+  immediately. Use for scripted or automated rebuilds.
 
 ---
 
-## Step 1 — Resolve the file path
+## Step 1 — Warn and confirm
 
-Derive the filename as `{slug}.{type}.md` from the match_key.
-The wiki file is at `{wiki_dir}/{filename}`, where `{wiki_dir}` defaults to
-`~/llm-wiki` (expand `~` to `$HOME`).
+Present this warning to the user:
+
+```
+⚠ wiki-rebuild will re-project ALL live notes from Postgres.
+  This may take a while and is resource-intensive.
+
+  What will happen:
+  • Every note file will be re-read from the database and rewritten
+  • index.md will be regenerated with the current PARA format
+  • Orphan files (notes that no longer exist) will be removed
+  • log.md will be appended with a crawl summary
+
+  This is safe and idempotent. Postgres is the source of truth.
+```
+
+If `--force` was not passed, ask the user to confirm before proceeding.
 
 ---
 
-## Step 2 — Sync by direction
+## Step 2 — Call anansi_wiki_crawl
 
-### master=wiki (local → server)
+Call the `anansi_wiki_crawl` MCP tool with no arguments.
 
-1. Read the local wiki file at `{wiki_dir}/{filename}`.
-2. Parse the frontmatter (`entity_type`, `name`, `match_key`) and body
-   (`# {Name}`, lede, `*{why}*`, content, `## Connections`).
-3. Build an atomized block:
-
-   ```markdown
-   ### 1.1 {Name} [{entity_type}]
-
-   ## Lede
-   {lede}
-
-   ## Why
-   {why}
-
-   ## Content
-   {content}
-
-   ## Edges
-   {connections, converted from [[slug.type|Name]] `rel` to rel type:slug format}
-   ```
-
-4. Wrap in the atomized file header and call `anansi_ingest_atomized`:
-
-   ```
-   content      = {built atomized content}
-   source       = "skill"
-   ```
-
-### master=anansi (server → local)
-
-1. Call `anansi_get` with the match_key to fetch the entity from the server.
-2. Extract `entity_type`, `name`, `lede`, `why`, `content`, and any edges
-   from the response.
-3. Write the local wiki file in the standard format (same as
-   `wiki-ingest-atomized` Step 2).
-4. Update `index.md` and `log.md`.
+The tool returns a JSON response with:
+- `notes_projected` — number of note files written
+- `evicted` — number of notes evicted (under tipping-point caps)
+- `orphans_removed` — number of orphan files deleted
+- `errors` — number of errors encountered
 
 ---
 
 ## Step 3 — Report
 
 ```
-*wiki-sync* — {Name}
-• Match key: {match_key}
-• Direction: {master} → {the other}
-• File: {wiki_dir}/{filename}
-• Status: synced
+*wiki-rebuild* — complete
+• Notes projected: {N}
+• Orphans removed: {N}
+• Errors: {N}
+• Duration: {approx time}
+• index.md: regenerated with PARA grouping
+• log.md: appended
 ```
-
-## Done
-
-- [ ] Source file exists at `{wiki_dir}/{filename}`
-- [ ] Atomized block constructed with correct format
-- [ ] `anansi_ingest_atomized` called with `source: "skill"`
-- [ ] Response indicates success (no error returned)
