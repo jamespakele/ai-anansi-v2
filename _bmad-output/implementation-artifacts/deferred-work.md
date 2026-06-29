@@ -4,7 +4,24 @@ Items surfaced during review but not caused by the current change, or scoped to 
 
 ---
 
-## From Build-01 Review
+## From Web Tender Review (Build-10)
+
+**Web Tender Phase 2 — 6 additional maintenance checks**
+
+Scoped to a future build after the initial 9 checks are deployed and stable. See `docs/web-tender-handoff.md` for full spec context.
+
+| # | Check | Confidence | Behavior |
+|---|-------|-----------|----------|
+| 1 | **Index/outline sync** | High (auto-fix) | Verify `index.md` and per-type outline notes list every entity that exists. Add missing entries, remove entries for deleted notes. |
+| 2 | **Normalization rules** | High (auto-fix) | Read rules from `%Rules/normalization.md` and apply them (name casing, punctuation, slug format). Rules can change between runs; the tender adapts. |
+| 3 | **Template alignment** | High (auto-fix) | Compare each note's fields against the current template for its `entity_type`. If fields are missing, renamed, or in the wrong format, re-atomize the note through the current `sb-atomize` pipeline. |
+| 4 | **Source integrity** | Medium (flag) | Verify every note's `source_id` still exists in the `sources` table. Flag orphans. |
+| 5 | **Edge inference** | Medium (flag) | Scan note `content` for mentions of known entities (by name or match_key) and suggest missing edges. |
+| 6 | **Semantic deduplication** | Low (flag) | Use vector similarity (embedding cosine distance) to find near-duplicates. Flag pairs above a configurable threshold for review. |
+
+**Dependencies:**
+- Check #3 (template alignment) depends on the `sb-atomize` pipeline being available at runtime
+- Check #6 (semantic dedup) depends on `note_embeddings` table being populated (embedding generation must be running)
 
 **outline path contradiction (§4 vs §8/§11)**
 Spec §4 (authoritative folder layout) says outlines live at `web/{source-slug}.outline.md`. Spec §8 and §11 say `outlines/{source-slug}.md` (a subfolder). `vault.rs` follows §4. Before build-02 pipeline implementation, the spec author should confirm §4 is canonical and update §8/§11 to match.

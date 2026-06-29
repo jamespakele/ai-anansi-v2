@@ -3,6 +3,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::Row;
+use uuid::Uuid;
 
 pub type DbPool = PgPool;
 
@@ -127,7 +128,10 @@ pub async fn get_source(pool: &DbPool, id: &str) -> Result<Option<SourceRecord>>
     Ok(row.map(row_to_source))
 }
 
-pub async fn find_source_by_content_hash(pool: &DbPool, hash: &str) -> Result<Option<SourceRecord>> {
+pub async fn find_source_by_content_hash(
+    pool: &DbPool,
+    hash: &str,
+) -> Result<Option<SourceRecord>> {
     let row = sqlx::query("SELECT * FROM sources WHERE content_hash = $1")
         .bind(hash)
         .fetch_optional(pool)
@@ -136,10 +140,12 @@ pub async fn find_source_by_content_hash(pool: &DbPool, hash: &str) -> Result<Op
 }
 
 pub async fn find_source_by_path(pool: &DbPool, source_path: &str) -> Result<Option<SourceRecord>> {
-    let row = sqlx::query("SELECT * FROM sources WHERE source_path = $1 ORDER BY ingested_at DESC LIMIT 1")
-        .bind(source_path)
-        .fetch_optional(pool)
-        .await?;
+    let row = sqlx::query(
+        "SELECT * FROM sources WHERE source_path = $1 ORDER BY ingested_at DESC LIMIT 1",
+    )
+    .bind(source_path)
+    .fetch_optional(pool)
+    .await?;
     Ok(row.map(row_to_source))
 }
 
@@ -202,6 +208,17 @@ pub async fn get_note(pool: &DbPool, id: &str) -> Result<Option<NoteRecord>> {
 pub async fn find_note_by_match_key(pool: &DbPool, key: &str) -> Result<Option<NoteRecord>> {
     let row = sqlx::query("SELECT * FROM notes WHERE match_key = $1")
         .bind(key)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(row_to_note))
+}
+
+/// Find a note by its slug (the part after the colon in match_key), regardless
+/// of entity_type. Returns the first match if multiple entity types share the
+/// same slug.
+pub async fn find_note_by_slug(pool: &DbPool, slug: &str) -> Result<Option<NoteRecord>> {
+    let row = sqlx::query("SELECT * FROM notes WHERE match_key LIKE $1 LIMIT 1")
+        .bind(format!("%:{slug}"))
         .fetch_optional(pool)
         .await?;
     Ok(row.map(row_to_note))
@@ -396,12 +413,10 @@ pub async fn insert_edge_if_not_exists(pool: &DbPool, rec: &EdgeRecord) -> Resul
 }
 
 pub async fn edges_for_note(pool: &DbPool, note_id: &str) -> Result<Vec<EdgeRecord>> {
-    let rows = sqlx::query(
-        "SELECT * FROM edges WHERE source_note_id = $1 OR target_note_id = $1",
-    )
-    .bind(note_id)
-    .fetch_all(pool)
-    .await?;
+    let rows = sqlx::query("SELECT * FROM edges WHERE source_note_id = $1 OR target_note_id = $1")
+        .bind(note_id)
+        .fetch_all(pool)
+        .await?;
 
     Ok(rows
         .into_iter()
@@ -419,7 +434,13 @@ pub async fn edges_for_note(pool: &DbPool, note_id: &str) -> Result<Vec<EdgeReco
         .collect())
 }
 
-pub async fn search_notes(pool: &DbPool, query: &str, limit: i64, include_archived: bool, use_or: bool) -> Result<Vec<NoteRecord>> {
+pub async fn search_notes(
+    pool: &DbPool,
+    query: &str,
+    limit: i64,
+    include_archived: bool,
+    use_or: bool,
+) -> Result<Vec<NoteRecord>> {
     // Use PostgreSQL tsvector full-text search across name, lede, why, and content.
     // The fts_vector column is a GENERATED ALWAYS AS STORED tsvector column.
     //
@@ -446,15 +467,13 @@ pub async fn search_notes(pool: &DbPool, query: &str, limit: i64, include_archiv
     } else {
         "AND entity_type NOT LIKE 'archive-%'"
     };
-    let rows = sqlx::query(
-        &format!(
-            "SELECT * FROM notes \
+    let rows = sqlx::query(&format!(
+        "SELECT * FROM notes \
              WHERE fts_vector @@ to_tsquery('english', $1) \
              {archive_clause} \
              ORDER BY ts_rank(fts_vector, to_tsquery('english', $1)) DESC \
              LIMIT $2"
-        )
-    )
+    ))
     .bind(&processed_query)
     .bind(limit)
     .fetch_all(pool)
@@ -501,14 +520,19 @@ pub async fn filter_notes(
         format!("WHERE {}", conditions.join(" AND "))
     };
 
-    let sql = format!(
-        "SELECT * FROM notes {where_clause} ORDER BY updated_at DESC LIMIT ${param_idx}"
-    );
+    let sql =
+        format!("SELECT * FROM notes {where_clause} ORDER BY updated_at DESC LIMIT ${param_idx}");
 
     let mut q = sqlx::query(&sql);
-    if let Some(et) = entity_type { q = q.bind(et); }
-    if let Some(a)  = after       { q = q.bind(a); }
-    if let Some(b)  = before      { q = q.bind(b); }
+    if let Some(et) = entity_type {
+        q = q.bind(et);
+    }
+    if let Some(a) = after {
+        q = q.bind(a);
+    }
+    if let Some(b) = before {
+        q = q.bind(b);
+    }
     q = q.bind(limit);
 
     let rows = q.fetch_all(pool).await?;
@@ -565,6 +589,408 @@ pub async fn find_contribution_by_source_toc(
         (contrib, note)
     }))
 }
+// ─── Web Tender (Build-10) ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct TenderFlagRecord {
+    pub id: String,
+    pub category: String,
+    pub severity: String,
+    pub match_key: Option<String>,
+    pub related_keys: Option<Vec<String>>,
+    pub description: Option<String>,
+    pub confidence: Option<f32>,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub resolved_at: Option<String>,
+    pub resolved_by: Option<String>,
+}
+
+pub async fn insert_tender_flag(
+    pool: &DbPool,
+    category: &str,
+    severity: &str,
+    match_key: Option<&str>,
+    related_keys: Option<&[String]>,
+    description: Option<&str>,
+    confidence: Option<f32>,
+) -> Result<TenderFlagRecord> {
+    let id = Uuid::new_v4().to_string();
+    let now = now_rfc3339();
+    let row = sqlx::query_as::<_, TenderFlagRecord>(
+        "INSERT INTO tender_queue \
+         (id, category, severity, match_key, related_keys, description, confidence, \
+          status, created_at, updated_at) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'open',$8,$8) \
+         RETURNING *",
+    )
+    .bind(&id)
+    .bind(category)
+    .bind(severity)
+    .bind(match_key)
+    .bind(related_keys)
+    .bind(description)
+    .bind(confidence)
+    .bind(&now)
+    .fetch_one(pool)
+    .await?;
+    Ok(row)
+}
+
+pub async fn get_open_flags(pool: &DbPool) -> Result<Vec<TenderFlagRecord>> {
+    let rows = sqlx::query_as::<_, TenderFlagRecord>(
+        "SELECT * FROM tender_queue WHERE status = 'open' ORDER BY severity DESC, created_at ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+pub async fn resolve_flag(pool: &DbPool, id: &str) -> Result<()> {
+    let now = now_rfc3339();
+    sqlx::query(
+        "UPDATE tender_queue SET status = 'resolved', resolved_at = $1, resolved_by = 'manual' WHERE id = $2",
+    )
+    .bind(&now)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn dismiss_flag(pool: &DbPool, id: &str) -> Result<()> {
+    let now = now_rfc3339();
+    sqlx::query(
+        "UPDATE tender_queue SET status = 'dismissed', resolved_at = $1, resolved_by = 'manual' WHERE id = $2",
+    )
+    .bind(&now)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn update_tender_flag_timestamp(pool: &DbPool, id: &str) -> Result<()> {
+    let now = now_rfc3339();
+    sqlx::query("UPDATE tender_queue SET updated_at = $1 WHERE id = $2")
+        .bind(&now)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Find an open flag by category and match_key. Returns the first match if one
+/// exists, so callers can update its timestamp instead of inserting a duplicate.
+pub async fn find_open_flag(
+    pool: &DbPool,
+    category: &str,
+    match_key: Option<&str>,
+) -> Result<Option<TenderFlagRecord>> {
+    let row = sqlx::query_as::<_, TenderFlagRecord>(
+        "SELECT * FROM tender_queue \
+         WHERE status = 'open' AND category = $1 \
+           AND (($2::text IS NULL AND match_key IS NULL) OR match_key = $2) \
+         LIMIT 1",
+    )
+    .bind(category)
+    .bind(match_key)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+/// Find edges whose source or target note no longer exists in the notes table.
+pub async fn get_dangling_edges(pool: &DbPool) -> Result<Vec<EdgeRecord>> {
+    let rows = sqlx::query_as::<_, EdgeRecord>(
+        "SELECT e.* FROM edges e \
+         LEFT JOIN notes n1 ON e.source_note_id = n1.id \
+         LEFT JOIN notes n2 ON e.target_note_id = n2.id \
+         WHERE n1.id IS NULL OR n2.id IS NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Find exact duplicate edges (same source, target, and type).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DuplicateEdgeRow {
+    pub source_note_id: String,
+    pub target_note_id: String,
+    pub edge_type: String,
+    pub count: Option<i64>,
+}
+
+pub async fn get_duplicate_edges(pool: &DbPool) -> Result<Vec<DuplicateEdgeRow>> {
+    let rows = sqlx::query_as::<_, DuplicateEdgeRow>(
+        "SELECT source_note_id, target_note_id, edge_type, COUNT(*)::int8 as count \
+         FROM edges \
+         GROUP BY source_note_id, target_note_id, edge_type \
+         HAVING COUNT(*) > 1",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Find edges between the same pair of notes with contradictory types.
+/// Contradictory pairs are defined by a simple heuristic: types that are
+/// semantically opposite (e.g. works_at vs competitor_of).
+pub async fn get_conflicting_edges(pool: &DbPool) -> Result<Vec<EdgeRecord>> {
+    let rows = sqlx::query_as::<_, EdgeRecord>(
+        "SELECT e1.* FROM edges e1 \
+         JOIN edges e2 ON e1.source_note_id = e2.source_note_id \
+           AND e1.target_note_id = e2.target_note_id \
+           AND e1.id < e2.id \
+         WHERE (e1.edge_type = 'works_at' AND e2.edge_type = 'competitor_of') \
+            OR (e1.edge_type = 'competitor_of' AND e2.edge_type = 'works_at') \
+            OR (e1.edge_type = 'reports_to' AND e2.edge_type = 'manages') \
+            OR (e1.edge_type = 'manages' AND e2.edge_type = 'reports_to') \
+            OR (e1.edge_type = 'parent_of' AND e2.edge_type = 'child_of') \
+            OR (e1.edge_type = 'child_of' AND e2.edge_type = 'parent_of')",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Find notes that have no edges at all (neither as source nor target).
+pub async fn get_orphan_notes(pool: &DbPool) -> Result<Vec<NoteRecord>> {
+    let rows = sqlx::query(
+        "SELECT n.* FROM notes n \
+         LEFT JOIN edges e ON n.id = e.source_note_id OR n.id = e.target_note_id \
+         WHERE e.id IS NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(row_to_note).collect())
+}
+
+/// Find notes with empty or null why and content fields.
+pub async fn get_stale_notes(pool: &DbPool) -> Result<Vec<NoteRecord>> {
+    let rows = sqlx::query(
+        "SELECT * FROM notes WHERE (why IS NULL OR why = '') AND (content IS NULL OR content = '')",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(row_to_note).collect())
+}
+
+/// Detect circular references in the edge graph using a recursive CTE.
+/// Returns all edges that are part of any cycle (A→B where a path exists from B back to A).
+pub async fn get_circular_refs(pool: &DbPool) -> Result<Vec<EdgeRecord>> {
+    let rows = sqlx::query_as::<_, EdgeRecord>(
+        "WITH RECURSIVE edge_path AS ( \
+           SELECT source_note_id, target_note_id, \
+                  ARRAY[source_note_id, target_note_id] AS path \
+           FROM edges \
+           UNION ALL \
+           SELECT ep.source_note_id, e.target_note_id, \
+                  ep.path || e.target_note_id \
+           FROM edges e \
+           JOIN edge_path ep ON e.source_note_id = ep.target_note_id \
+           WHERE NOT e.target_note_id = ANY(ep.path) \
+             AND array_length(ep.path, 1) < 20 \
+         ) \
+         SELECT DISTINCT e.id, e.source_note_id, e.target_note_id, e.edge_type, \
+                e.why, e.from_source, e.weight, e.metadata, e.created_at \
+         FROM edges e \
+         WHERE EXISTS ( \
+           SELECT 1 FROM edge_path ep \
+           WHERE ep.source_note_id = e.target_note_id \
+             AND ep.target_note_id = e.source_note_id \
+         )",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Find edges where the edge_type doesn't make sense for the entity types involved.
+/// For example, a 'works_at' edge should connect a person to an organization.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TypeViolationRow {
+    pub edge_id: String,
+    pub source_entity_type: String,
+    pub target_entity_type: String,
+    pub edge_type: String,
+}
+
+pub async fn get_type_violations(pool: &DbPool) -> Result<Vec<TypeViolationRow>> {
+    let rows = sqlx::query_as::<_, TypeViolationRow>(
+        "SELECT e.id AS edge_id, n1.entity_type AS source_entity_type, \
+                n2.entity_type AS target_entity_type, e.edge_type \
+         FROM edges e \
+         JOIN notes n1 ON n1.id = e.source_note_id \
+         JOIN notes n2 ON n2.id = e.target_note_id \
+         WHERE (e.edge_type = 'works_at' AND NOT (n1.entity_type = 'person' AND n2.entity_type = 'organization')) \
+            OR (e.edge_type = 'competitor_of' AND NOT (n1.entity_type = 'organization' AND n2.entity_type = 'organization')) \
+            OR (e.edge_type = 'reports_to' AND NOT (n1.entity_type = 'person' AND n2.entity_type = 'person')) \
+            OR (e.edge_type = 'manages' AND NOT (n1.entity_type = 'person' AND n2.entity_type = 'person')) \
+            OR (e.edge_type = 'parent_of' AND NOT (n1.entity_type = 'organization' AND n2.entity_type = 'organization')) \
+            OR (e.edge_type = 'child_of' AND NOT (n1.entity_type = 'organization' AND n2.entity_type = 'organization'))",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Get a batch of notes ordered by updated_at ASC for processing.
+pub async fn get_notes_batch(
+    pool: &DbPool,
+    batch_size: u64,
+    offset: u64,
+) -> Result<Vec<NoteRecord>> {
+    let rows = sqlx::query("SELECT * FROM notes ORDER BY updated_at ASC LIMIT $1 OFFSET $2")
+        .bind(batch_size as i64)
+        .bind(offset as i64)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().map(row_to_note).collect())
+}
+
+/// Find notes with identical normalized_name and entity_type (exact duplicates).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DuplicateNoteRow {
+    pub normalized_name: String,
+    pub entity_type: String,
+    pub count: Option<i64>,
+}
+
+pub async fn get_exact_duplicates(pool: &DbPool) -> Result<Vec<DuplicateNoteRow>> {
+    let rows = sqlx::query_as::<_, DuplicateNoteRow>(
+        "SELECT match_key AS normalized_name, entity_type, COUNT(*)::int8 as count \
+         FROM notes \
+         GROUP BY match_key, entity_type \
+         HAVING COUNT(*) > 1",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Remove a single dangling edge by id.
+pub async fn remove_dangling_edge(pool: &DbPool, edge_id: &str) -> Result<()> {
+    sqlx::query("DELETE FROM edges WHERE id = $1")
+        .bind(edge_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Remove a duplicate edge by id (keeps the one with the lowest id).
+pub async fn remove_duplicate_edge(pool: &DbPool, edge_id: &str) -> Result<()> {
+    sqlx::query("DELETE FROM edges WHERE id = $1")
+        .bind(edge_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Merge two duplicate notes: update edges to point to the kept note, union
+/// why/content, re-point source_contributions, then delete the duplicate.
+pub async fn merge_duplicate_notes(pool: &DbPool, keep_id: &str, remove_id: &str) -> Result<()> {
+    let mut tx = pool.begin().await?;
+
+    // Re-point edges that reference the removed note to the kept note
+    sqlx::query("UPDATE edges SET source_note_id = $1 WHERE source_note_id = $2")
+        .bind(keep_id)
+        .bind(remove_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("UPDATE edges SET target_note_id = $1 WHERE target_note_id = $2")
+        .bind(keep_id)
+        .bind(remove_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Re-point source_contributions from the removed note to the kept note
+    sqlx::query("UPDATE source_contributions SET note_id = $1 WHERE note_id = $2")
+        .bind(keep_id)
+        .bind(remove_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Union why and content from the removed note into the kept note
+    sqlx::query(
+        "UPDATE notes SET \
+         why = CASE \
+           WHEN notes.why IS NULL OR notes.why = '' THEN removed.why \
+           WHEN removed.why IS NOT NULL AND removed.why != '' \
+             THEN notes.why || E'\\n---\\n' || removed.why \
+           ELSE notes.why \
+         END, \
+         content = CASE \
+           WHEN notes.content IS NULL OR notes.content = '' THEN removed.content \
+           WHEN removed.content IS NOT NULL AND removed.content != '' \
+             THEN notes.content || E'\\n---\\n' || removed.content \
+           ELSE notes.content \
+         END, \
+         source_count = notes.source_count + removed.source_count, \
+         updated_at = $3 \
+         FROM notes AS removed \
+         WHERE notes.id = $1 AND removed.id = $2",
+    )
+    .bind(keep_id)
+    .bind(remove_id)
+    .bind(now_rfc3339())
+    .execute(&mut *tx)
+    .await?;
+
+    // Delete the duplicate note
+    sqlx::query("DELETE FROM notes WHERE id = $1")
+        .bind(remove_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Remove broken wikilinks from a note's content.
+pub async fn remove_broken_wikilinks(
+    pool: &DbPool,
+    note_id: &str,
+    broken_targets: &[String],
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+
+    // Get the current content
+    let row = sqlx::query("SELECT content FROM notes WHERE id = $1")
+        .bind(note_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+    let content: String = match row {
+        Some(r) => r.get("content"),
+        None => return Ok(()),
+    };
+
+    if content.is_empty() {
+        return Ok(());
+    }
+
+    // Remove each broken wikilink: [[target]] -> target (plain text)
+    let mut cleaned = content;
+    for target in broken_targets {
+        cleaned = cleaned.replace(&format!("[[{}]]", target), target);
+    }
+
+    sqlx::query("UPDATE notes SET content = $1, updated_at = $2 WHERE id = $3")
+        .bind(&cleaned)
+        .bind(now_rfc3339())
+        .bind(note_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+// ─── Tests ──────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -579,7 +1005,10 @@ mod tests {
 
     #[test]
     fn match_key_special_chars() {
-        assert_eq!(match_key("O'Brien & Co.", "organization"), "organization:o-brien-co");
+        assert_eq!(
+            match_key("O'Brien & Co.", "organization"),
+            "organization:o-brien-co"
+        );
     }
 
     #[test]

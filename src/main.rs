@@ -8,12 +8,13 @@ use anansi2::config::Config;
 use anansi2::crawl;
 use anansi2::db;
 use anansi2::inbox;
-use anansi2::queue;
 use anansi2::llm;
 use anansi2::mcp;
 use anansi2::pipeline::{ingest, IngestContext};
+use anansi2::queue;
 use anansi2::rules::RuleRegistry;
 use anansi2::template::TemplateRegistry;
+use anansi2::tender;
 use anansi2::vault::Vault;
 use anansi2::wiki::WikiStore;
 
@@ -23,46 +24,85 @@ use anansi2::wiki::WikiStore;
 
 // Templates (37 files) — canonical source: llm/plugins/anansi-config.plugin/references/templates/
 // utility
-const TMPL_ACTION_ITEM_LIST: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/action_item_list.md");
-const TMPL_ANANSI_CONFIG: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/anansi-config.md");
-const TMPL_CONTAINER: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/container.md");
-const TMPL_CONTEXT: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/context.md");
-const TMPL_EVENT: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/event.md");
-const TMPL_MEMO: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/memo.md");
-const TMPL_OUTLINE: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/outline.md");
-const TMPL_SOCIAL_POST: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/social-post.md");
-const TMPL_SPEECH: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/speech.md");
-const TMPL_TASK: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/task.md");
+const TMPL_ACTION_ITEM_LIST: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/action_item_list.md");
+const TMPL_ANANSI_CONFIG: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/anansi-config.md");
+const TMPL_CONTAINER: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/container.md");
+const TMPL_CONTEXT: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/context.md");
+const TMPL_EVENT: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/event.md");
+const TMPL_MEMO: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/memo.md");
+const TMPL_OUTLINE: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/outline.md");
+const TMPL_SOCIAL_POST: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/social-post.md");
+const TMPL_SPEECH: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/speech.md");
+const TMPL_TASK: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/task.md");
 // identity (entity-*)
-const TMPL_AREA: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-area.md");
-const TMPL_BOOK: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-book.md");
-const TMPL_FLIGHT: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-flight.md");
-const TMPL_FLIGHT_OUTPUT: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-flight-output.md");
-const TMPL_MISSION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-mission.md");
-const TMPL_NOTE: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-note.md");
-const TMPL_OPERATION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-operation.md");
-const TMPL_ORGANIZATION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-organization.md");
-const TMPL_PERSON: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-person.md");
-const TMPL_PROJECT: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-project.md");
-const TMPL_TOPIC: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/identity-topic.md");
+const TMPL_AREA: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-area.md");
+const TMPL_BOOK: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-book.md");
+const TMPL_FLIGHT: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-flight.md");
+const TMPL_FLIGHT_OUTPUT: &str = include_str!(
+    "../llm/plugins/anansi-config.plugin/references/templates/entity-flight-output.md"
+);
+const TMPL_MISSION: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-mission.md");
+const TMPL_NOTE: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-note.md");
+const TMPL_OPERATION: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-operation.md");
+const TMPL_ORGANIZATION: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-organization.md");
+const TMPL_PERSON: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-person.md");
+const TMPL_PROJECT: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-project.md");
+const TMPL_TOPIC: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/identity-topic.md");
 // source family
-const TMPL_COMPANY_UPDATE: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/company-update.md");
-const TMPL_EMAIL_THREAD: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/email-thread.md");
-const TMPL_MEETING_SUMMARY: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/meeting-summary.md");
-const TMPL_NEWSLETTER: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/newsletter.md");
-const TMPL_PRESENTATION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/presentation.md");
-const TMPL_RESEARCH_PAPER: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/research-paper.md");
-const TMPL_YOUTUBE_VIDEO: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/youtube-video.md");
+const TMPL_COMPANY_UPDATE: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/company-update.md");
+const TMPL_EMAIL_THREAD: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/email-thread.md");
+const TMPL_MEETING_SUMMARY: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/meeting-summary.md");
+const TMPL_NEWSLETTER: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/newsletter.md");
+const TMPL_PRESENTATION: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/presentation.md");
+const TMPL_RESEARCH_PAPER: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/research-paper.md");
+const TMPL_YOUTUBE_VIDEO: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/youtube-video.md");
 // content_unit family
-const TMPL_BOOK_CHAPTER: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/book-chapter.md");
-const TMPL_BOOK_SECTION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/book-section.md");
-const TMPL_COMPANY_UPDATE_ITEM: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/company-update-item.md");
-const TMPL_EMAIL_EXCHANGE: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/email-exchange.md");
-const TMPL_MEETING_TOPIC_DISCUSSION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/meeting-topic-discussion.md");
-const TMPL_NEWSLETTER_ITEM: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/newsletter-item.md");
-const TMPL_PRESENTATION_SLIDE: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/presentation-slide.md");
-const TMPL_RESEARCH_SECTION: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/research-section.md");
-const TMPL_YOUTUBE_CHAPTER: &str = include_str!("../llm/plugins/anansi-config.plugin/references/templates/youtube-chapter.md");
+const TMPL_BOOK_CHAPTER: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/book-chapter.md");
+const TMPL_BOOK_SECTION: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/book-section.md");
+const TMPL_COMPANY_UPDATE_ITEM: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/company-update-item.md");
+const TMPL_EMAIL_EXCHANGE: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/email-exchange.md");
+const TMPL_MEETING_TOPIC_DISCUSSION: &str = include_str!(
+    "../llm/plugins/anansi-config.plugin/references/templates/meeting-topic-discussion.md"
+);
+const TMPL_NEWSLETTER_ITEM: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/newsletter-item.md");
+const TMPL_PRESENTATION_SLIDE: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/presentation-slide.md");
+const TMPL_RESEARCH_SECTION: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/research-section.md");
+const TMPL_YOUTUBE_CHAPTER: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/youtube-chapter.md");
 
 // Rules (4 files)
 const RULE_ATOMICITY: &str = include_str!("../%Rules/%Atomicity.md");
@@ -205,7 +245,10 @@ async fn seed_templates_to_db(pool: &db::DbPool, templates: &[(&str, &str)]) -> 
         let match_key = format!("anansi_config:template:{entity_type}");
 
         // Check if already present
-        if db::find_note_by_match_key(pool, &match_key).await?.is_some() {
+        if db::find_note_by_match_key(pool, &match_key)
+            .await?
+            .is_some()
+        {
             skipped += 1;
             continue;
         }
@@ -216,7 +259,9 @@ async fn seed_templates_to_db(pool: &db::DbPool, templates: &[(&str, &str)]) -> 
             entity_type: "anansi_config".to_string(),
             name: format!("Template: {entity_type}"),
             match_key,
-            lede: Some(format!("Template definition for entity type '{entity_type}'")),
+            lede: Some(format!(
+                "Template definition for entity type '{entity_type}'"
+            )),
             why: None,
             content: Some(content.to_string()),
             has_conflicts: 0,
@@ -294,19 +339,28 @@ async fn cmd_init(root: &Path) -> Result<()> {
 
     // Open and migrate the database
     let config = Config::load(root)?;
-    let db_pool = db::connect_and_migrate(&config.database_url).await
+    let db_pool = db::connect_and_migrate(&config.database_url)
+        .await
         .with_context(|| format!("connecting/migrating DB at {}", config.database_url))?;
 
     // Seed templates into the database as anansi_config notes
     let (db_created, db_skipped) = seed_templates_to_db(&db_pool, SEED_TEMPLATES).await?;
 
     println!("Vault initialised at {}", root.display());
-    println!("  templates : {} created, {} preserved (existing files never overwritten)", tmpl_created, tmpl_skipped);
-    println!("  db seed   : {} templates seeded, {} already present", db_created, db_skipped);
-    println!("  rules     : {} created, {} preserved", rules_created, rules_skipped);
+    println!(
+        "  templates : {} created, {} preserved (existing files never overwritten)",
+        tmpl_created, tmpl_skipped
+    );
+    println!(
+        "  db seed   : {} templates seeded, {} already present",
+        db_created, db_skipped
+    );
+    println!(
+        "  rules     : {} created, {} preserved",
+        rules_created, rules_skipped
+    );
     println!("  anansi.toml: {}", toml_msg);
-    Ok(()
-    )
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -314,8 +368,8 @@ async fn cmd_init(root: &Path) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 async fn cmd_ingest(root: &Path, file: &Path) -> Result<()> {
-    let config = Config::load(root)
-        .with_context(|| format!("loading config from {}", root.display()))?;
+    let config =
+        Config::load(root).with_context(|| format!("loading config from {}", root.display()))?;
 
     let db_pool = db::connect_and_migrate(&config.database_url).await?;
     let mut templates = TemplateRegistry::load(&config.templates_path(root))?;
@@ -359,8 +413,8 @@ async fn cmd_ingest(root: &Path, file: &Path) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 async fn cmd_rebuild_wiki(root: &Path, clean: bool) -> Result<()> {
-    let config = Config::load(root)
-        .with_context(|| format!("loading config from {}", root.display()))?;
+    let config =
+        Config::load(root).with_context(|| format!("loading config from {}", root.display()))?;
 
     eprintln!("[rebuild] connecting to db at {}", config.database_url);
     let pool = db::connect_and_migrate(&config.database_url).await?;
@@ -421,12 +475,15 @@ fn clean_wiki_dir(dir: &Path) -> Result<usize> {
 async fn cmd_serve(root: &Path) -> Result<()> {
     eprintln!("[anansi2] serve starting — root={}", root.display());
 
-    let config = Config::load(root)
-        .with_context(|| format!("loading config from {}", root.display()))?;
+    let config =
+        Config::load(root).with_context(|| format!("loading config from {}", root.display()))?;
 
     let host = config.server.host.clone();
     let port = config.server.mcp_port;
-    eprintln!("[anansi2] config loaded — host={host} port={port} backend={}", config.llm.backend);
+    eprintln!(
+        "[anansi2] config loaded — host={host} port={port} backend={}",
+        config.llm.backend
+    );
 
     eprintln!("[anansi2] connecting to db at {}", config.database_url);
     let db_pool = db::connect_and_migrate(&config.database_url).await?;
@@ -436,7 +493,8 @@ async fn cmd_serve(root: &Path) -> Result<()> {
     let vault = Vault::new(root.to_path_buf(), &config.paths.web_dir);
 
     // Seed any missing templates into DB (handles fresh DB without explicit init)
-    let (db_seeded, _) = seed_templates_to_db(&db_pool, SEED_TEMPLATES).await
+    let (db_seeded, _) = seed_templates_to_db(&db_pool, SEED_TEMPLATES)
+        .await
         .unwrap_or((0, 0));
     if db_seeded > 0 {
         eprintln!("[anansi2] seeded {db_seeded} template(s) into database");
@@ -446,7 +504,10 @@ async fn cmd_serve(root: &Path) -> Result<()> {
     // file-based templates. User-created templates via Claude Cowork appear here.
     let db_loaded = templates.load_from_db(&db_pool).await.unwrap_or(0);
     eprintln!("[anansi2] loaded {db_loaded} template(s) from database (runtime source of truth)");
-    eprintln!("[anansi2] template registry: {} entity types total", templates.all_entity_types().len());
+    eprintln!(
+        "[anansi2] template registry: {} entity types total",
+        templates.all_entity_types().len()
+    );
 
     // LLM not needed for MCP serve — atomized ingest is zero LLM calls.
     // Try to build one for legacy pipeline tools, but don't fail if unavailable.
@@ -481,8 +542,10 @@ async fn cmd_serve(root: &Path) -> Result<()> {
         tokio::spawn(async move {
             queue::run_queue_watcher(q_config, q_pool).await;
         });
-        eprintln!("[anansi2] queue watcher spawned — polling '{}' every {}s",
-            ctx.config.inbox.queue_dir, ctx.config.inbox.queue_poll_interval_secs);
+        eprintln!(
+            "[anansi2] queue watcher spawned — polling '{}' every {}s",
+            ctx.config.inbox.queue_dir, ctx.config.inbox.queue_poll_interval_secs
+        );
     }
 
     // Spawn inbox watcher if enabled
@@ -492,9 +555,14 @@ async fn cmd_serve(root: &Path) -> Result<()> {
         tokio::spawn(async move {
             inbox::run_inbox_watcher(watcher_config, watcher_pool).await;
         });
-        eprintln!("[anansi2] inbox watcher spawned — watching '{}'", ctx.config.inbox.watch_dir);
+        eprintln!(
+            "[anansi2] inbox watcher spawned — watching '{}'",
+            ctx.config.inbox.watch_dir
+        );
     } else {
-        eprintln!("[anansi2] inbox watcher disabled (set inbox.enabled = true in anansi.toml to enable)");
+        eprintln!(
+            "[anansi2] inbox watcher disabled (set inbox.enabled = true in anansi.toml to enable)"
+        );
     }
 
     // Spawn anansi-crawl watcher if the wiki and its crawl are both enabled
@@ -504,9 +572,29 @@ async fn cmd_serve(root: &Path) -> Result<()> {
         tokio::spawn(async move {
             crawl::run_crawl_watcher(c_config, c_pool).await;
         });
-        eprintln!("[anansi2] crawl watcher spawned — every {}s", ctx.config.wiki.crawl_interval_secs);
+        eprintln!(
+            "[anansi2] crawl watcher spawned — every {}s",
+            ctx.config.wiki.crawl_interval_secs
+        );
     } else {
-        eprintln!("[anansi2] crawl watcher disabled (set wiki.enabled + wiki.crawl_enabled to enable)");
+        eprintln!(
+            "[anansi2] crawl watcher disabled (set wiki.enabled + wiki.crawl_enabled to enable)"
+        );
+    }
+
+    // Spawn web tender watcher if enabled
+    if ctx.config.tender.enabled {
+        let t_config = Arc::new(ctx.config.clone());
+        let t_pool = ctx.db.clone();
+        tokio::spawn(async move {
+            tender::run_tender_watcher(t_config, t_pool).await;
+        });
+        eprintln!(
+            "[anansi2] web tender watcher started (interval: {}s)",
+            ctx.config.tender.interval_secs
+        );
+    } else {
+        eprintln!("[anansi2] web tender watcher disabled (set tender.enabled = true in anansi.toml to enable)");
     }
 
     mcp::serve(ctx, &host, port).await?;

@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub paths: PathsConfig,
@@ -15,6 +14,8 @@ pub struct Config {
     pub inbox: InboxConfig,
     #[serde(default)]
     pub wiki: WikiConfig,
+    #[serde(default)]
+    pub tender: TenderConfig,
     /// PostgreSQL connection URL — overridden by DATABASE_URL env var at load time.
     #[serde(default = "default_database_url")]
     pub database_url: String,
@@ -30,9 +31,15 @@ pub struct PathsConfig {
     pub templates_dir: PathBuf,
 }
 
-fn default_web_dir() -> PathBuf { PathBuf::from("anansi/web") }
-fn default_rules_dir() -> PathBuf { PathBuf::from("anansi/%Rules") }
-fn default_templates_dir() -> PathBuf { PathBuf::from("llm/plugins/anansi-config.plugin/references/templates") }
+fn default_web_dir() -> PathBuf {
+    PathBuf::from("anansi/web")
+}
+fn default_rules_dir() -> PathBuf {
+    PathBuf::from("anansi/%Rules")
+}
+fn default_templates_dir() -> PathBuf {
+    PathBuf::from("llm/plugins/anansi-config.plugin/references/templates")
+}
 fn default_database_url() -> String {
     std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://anansi:anansi@localhost:5432/anansi".to_string())
@@ -136,12 +143,24 @@ pub struct InboxConfig {
     pub llm_backend: Option<String>,
 }
 
-fn default_inbox_watch_dir() -> String { "/data/q-inbox".to_string() }
-fn default_inbox_archive_dir() -> String { "/data/archive".to_string() }
-fn default_queue_dir() -> String { "/data/q-atomize".to_string() }
-fn default_queue_poll_interval_secs() -> u64 { 10 }
-fn default_skills_dir() -> String { "/app/skills".to_string() }
-fn default_poll_interval_secs() -> u64 { 30 }
+fn default_inbox_watch_dir() -> String {
+    "/data/q-inbox".to_string()
+}
+fn default_inbox_archive_dir() -> String {
+    "/data/archive".to_string()
+}
+fn default_queue_dir() -> String {
+    "/data/q-atomize".to_string()
+}
+fn default_queue_poll_interval_secs() -> u64 {
+    10
+}
+fn default_skills_dir() -> String {
+    "/app/skills".to_string()
+}
+fn default_poll_interval_secs() -> u64 {
+    30
+}
 
 impl Default for InboxConfig {
     fn default() -> Self {
@@ -182,7 +201,55 @@ impl Default for Config {
             pipeline: PipelineConfig::default(),
             inbox: InboxConfig::default(),
             wiki: WikiConfig::default(),
+            tender: TenderConfig::default(),
             database_url: default_database_url(),
+        }
+    }
+}
+
+// ─── Web Tender (Build-10) ─────────────────────────────────────────────────────
+
+/// Background maintenance crawler that periodically checks the knowledge graph
+/// for integrity issues: dangling edges, duplicate notes, broken wikilinks,
+/// circular references, type consistency, and more.
+/// When enabled, runs on a configurable interval and either flags findings to
+/// the tender_queue table (dry-run) or auto-resolves them (apply mode).
+#[derive(Debug, Clone, Deserialize)]
+pub struct TenderConfig {
+    /// Whether the tender background task is enabled (default false).
+    #[serde(default = "default_tender_enabled")]
+    pub enabled: bool,
+    /// Interval in seconds between maintenance passes (default 3600).
+    #[serde(default = "default_tender_interval")]
+    pub interval_secs: u64,
+    /// Number of notes to process per batch (default 100).
+    #[serde(default = "default_tender_batch_size")]
+    pub batch_size: u64,
+    /// When true, only log what would be done — no mutations (default true).
+    #[serde(default = "default_tender_dry_run")]
+    pub dry_run: bool,
+}
+
+fn default_tender_enabled() -> bool {
+    false
+}
+fn default_tender_interval() -> u64 {
+    3600
+}
+fn default_tender_batch_size() -> u64 {
+    100
+}
+fn default_tender_dry_run() -> bool {
+    true
+}
+
+impl Default for TenderConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_tender_enabled(),
+            interval_secs: default_tender_interval(),
+            batch_size: default_tender_batch_size(),
+            dry_run: default_tender_dry_run(),
         }
     }
 }
@@ -225,7 +292,9 @@ pub struct WikiConfig {
     pub max_notes: u64,
 }
 
-fn default_wiki_dir() -> String { "~/llm-wiki".to_string() }
+fn default_wiki_dir() -> String {
+    "~/llm-wiki".to_string()
+}
 
 /// Expand a leading `~` / `~/` in a path to the OS home dir. Dependency-free:
 /// `$HOME` (Linux/macOS) then `%USERPROFILE%` (Windows). If neither is set, the
@@ -252,8 +321,12 @@ fn expand_home_with(path: &str, home: Option<&str>) -> String {
         path.to_string()
     }
 }
-fn default_crawl_interval_secs() -> u64 { 3600 }
-fn default_lint_batch_max() -> u64 { 25 }
+fn default_crawl_interval_secs() -> u64 {
+    3600
+}
+fn default_lint_batch_max() -> u64 {
+    25
+}
 
 impl Default for WikiConfig {
     fn default() -> Self {
@@ -270,11 +343,21 @@ impl Default for WikiConfig {
     }
 }
 
-fn default_backend() -> String { "ollama".to_string() }
-fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
-fn default_model() -> String { "qwen2.5:14b".to_string() }
-fn default_n_ctx() -> u32 { 16384 }
-fn default_timeout_s() -> u64 { 600 }
+fn default_backend() -> String {
+    "ollama".to_string()
+}
+fn default_ollama_url() -> String {
+    "http://localhost:11434".to_string()
+}
+fn default_model() -> String {
+    "qwen2.5:14b".to_string()
+}
+fn default_n_ctx() -> u32 {
+    16384
+}
+fn default_timeout_s() -> u64 {
+    600
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct InferSettings {
@@ -286,8 +369,12 @@ pub struct InferSettings {
     pub json_mode: bool,
 }
 
-fn default_temperature() -> f32 { 0.2 }
-fn default_max_tokens() -> u32 { 4096 }
+fn default_temperature() -> f32 {
+    0.2
+}
+fn default_max_tokens() -> u32 {
+    4096
+}
 
 impl Default for InferSettings {
     fn default() -> Self {
@@ -315,8 +402,12 @@ pub struct ServerConfig {
     pub api_key: Option<String>,
 }
 
-fn default_mcp_port() -> u16 { 3738 }
-fn default_host() -> String { "0.0.0.0".to_string() }
+fn default_mcp_port() -> u16 {
+    3738
+}
+fn default_host() -> String {
+    "0.0.0.0".to_string()
+}
 
 impl Default for ServerConfig {
     fn default() -> Self {
@@ -336,10 +427,10 @@ impl Config {
         let mut config: Config = match std::fs::read_to_string(&path) {
             Ok(text) => toml::from_str(&text)
                 .with_context(|| format!("parsing config at {}", path.display()))?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Config::default()
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Config::default(),
+            Err(e) => {
+                return Err(e).with_context(|| format!("reading config at {}", path.display()))
             }
-            Err(e) => return Err(e).with_context(|| format!("reading config at {}", path.display())),
         };
 
         if let Ok(backend) = std::env::var("ANANSI_BACKEND") {
@@ -399,10 +490,12 @@ pub fn resolve_openrouter_api_key(cfg: &OpenRouterConfig) -> anyhow::Result<Stri
     cfg.api_key
         .clone()
         .or_else(|| std::env::var("ANANSI_OPENROUTER_API_KEY").ok())
-        .ok_or_else(|| anyhow::anyhow!(
-            "OpenRouter API key not found. Set [llm.openrouter] api_key in anansi.toml \
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "OpenRouter API key not found. Set [llm.openrouter] api_key in anansi.toml \
              or export ANANSI_OPENROUTER_API_KEY"
-        ))
+            )
+        })
 }
 
 #[cfg(test)]
@@ -412,11 +505,20 @@ mod tests {
 
     #[test]
     fn expand_home_resolves_tilde() {
-        assert_eq!(expand_home_with("~/llm-wiki", Some("/home/pakele")), "/home/pakele/llm-wiki");
+        assert_eq!(
+            expand_home_with("~/llm-wiki", Some("/home/pakele")),
+            "/home/pakele/llm-wiki"
+        );
         assert_eq!(expand_home_with("~", Some("/Users/james")), "/Users/james");
         // Absolute and non-tilde relative paths are untouched.
-        assert_eq!(expand_home_with("/data/llm-wiki", Some("/home/pakele")), "/data/llm-wiki");
-        assert_eq!(expand_home_with("relative/dir", Some("/home/pakele")), "relative/dir");
+        assert_eq!(
+            expand_home_with("/data/llm-wiki", Some("/home/pakele")),
+            "/data/llm-wiki"
+        );
+        assert_eq!(
+            expand_home_with("relative/dir", Some("/home/pakele")),
+            "relative/dir"
+        );
         // `~user` is not expanded.
         assert_eq!(expand_home_with("~bob/x", Some("/home/pakele")), "~bob/x");
         // No home → left literal, not fabricated.
