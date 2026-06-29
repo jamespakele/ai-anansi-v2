@@ -50,16 +50,16 @@ const TMPL_AREA: &str =
 const TMPL_BOOK: &str =
     include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-book.md");
 const TMPL_FLIGHT: &str =
-    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-flight.md");
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/coruscant-flight.md");
 const TMPL_FLIGHT_OUTPUT: &str = include_str!(
-    "../llm/plugins/anansi-config.plugin/references/templates/entity-flight-output.md"
+    "../llm/plugins/anansi-config.plugin/references/templates/coruscant-flight-output.md"
 );
 const TMPL_MISSION: &str =
-    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-mission.md");
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/coruscant-mission.md");
 const TMPL_NOTE: &str =
     include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-note.md");
 const TMPL_OPERATION: &str =
-    include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-operation.md");
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/coruscant-operation.md");
 const TMPL_ORGANIZATION: &str =
     include_str!("../llm/plugins/anansi-config.plugin/references/templates/entity-organization.md");
 const TMPL_PERSON: &str =
@@ -196,11 +196,11 @@ const SEED_TEMPLATES: &[(&str, &str)] = &[
     // identity
     ("entity-area.md", TMPL_AREA),
     ("entity-book.md", TMPL_BOOK),
-    ("entity-flight.md", TMPL_FLIGHT),
-    ("entity-flight-output.md", TMPL_FLIGHT_OUTPUT),
-    ("entity-mission.md", TMPL_MISSION),
+    ("coruscant-flight.md", TMPL_FLIGHT),
+    ("coruscant-flight-output.md", TMPL_FLIGHT_OUTPUT),
+    ("coruscant-mission.md", TMPL_MISSION),
     ("entity-note.md", TMPL_NOTE),
-    ("entity-operation.md", TMPL_OPERATION),
+    ("coruscant-operation.md", TMPL_OPERATION),
     ("entity-organization.md", TMPL_ORGANIZATION),
     ("entity-person.md", TMPL_PERSON),
     ("entity-project.md", TMPL_PROJECT),
