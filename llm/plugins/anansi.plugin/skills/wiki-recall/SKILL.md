@@ -97,10 +97,11 @@ Once created, custom types behave exactly like core types:
 - They are fully recallable via this skill
 
 Examples of custom types that have been added:
-- `flight` — Coruscant flight tracking (template: `coruscant-flight.md`)
-- `flight-output` — Coruscant flight output records (template: `coruscant-flight-output.md`)
-- `operation` — Coruscant operations (template: `coruscant-operation.md`)
-- `r2-drone` — R2 drone configurations (template: `r2-drone.md`)
+- `coruscant_flight` — Coruscant flight tracking (template: `coruscant-flight.md`)
+- `coruscant_flight_output` — Coruscant flight output records (template: `coruscant-flight-output.md`)
+- `coruscant_operation` — Coruscant operations (template: `coruscant-operation.md`)
+- `coruscant_mission` — Coruscant missions (template: `coruscant-mission.md`)
+- `coruscant_manifest` — Coruscant flight manifests (template: `coruscant-manifest.md`)
 - `anansi_config` — System configuration entries (template: `anansi-config.md`)
 
 To create a new entity type, use the `anansi-new-entity-type` skill.

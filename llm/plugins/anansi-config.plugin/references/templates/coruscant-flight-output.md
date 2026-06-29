@@ -1,9 +1,9 @@
 ---
-entity_type: flight-output
+entity_type: coruscant_flight_output
 template_class: identity
 atomic: true
 merge_strategy: pure_atomic
-template_version: "1.0"
+template_version: "2.0"
 description: "Structured output from a completed Coruscant flight — what the drone found or produced"
 
 atomic_criteria: >

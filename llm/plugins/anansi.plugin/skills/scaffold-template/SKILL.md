@@ -47,7 +47,7 @@ Every template has three parts:
 ### Frontmatter — required fields
 
 ```yaml
-entity_type: <kebab-case-id>          # canonical type label
+entity_type: <snake_case_id>          # canonical type label (e.g., topic_discussion, coruscant_flight)
 template_class: identity | content_unit | source | utility
 atomic: true | false                  # does this create a stored note?
 merge_strategy: pure_atomic | container | source_bound
@@ -191,7 +191,7 @@ Special-purpose templates that don't fit the above. Outline (the source's MOC), 
 When invoked:
 
 1. **Gather inputs.** From the user's request, identify:
-   - **`entity_type`** — kebab-case id (e.g., `place`, `book`, `recipe`)
+   - **`entity_type`** — snake_case id (e.g., `topic_discussion`, `coruscant_flight`)
    - **One-line `description`** — what does this represent?
    - **Template class** — identity? content_unit? source? utility?
    - **Merge strategy** — implied by class but ask if ambiguous

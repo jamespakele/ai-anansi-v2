@@ -1,9 +1,9 @@
 ---
-entity_type: mission
+entity_type: coruscant_mission
 template_class: identity
 atomic: true
 merge_strategy: container
-template_version: "1.0"
+template_version: "2.0"
 description: "A Coruscant mission — a named objective executed by a coordinated fleet of drone flights"
 
 atomic_criteria: >

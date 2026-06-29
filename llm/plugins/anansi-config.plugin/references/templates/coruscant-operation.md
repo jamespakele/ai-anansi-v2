@@ -1,9 +1,9 @@
 ---
-entity_type: operation
+entity_type: coruscant_operation
 template_class: identity
 atomic: true
 merge_strategy: container
-template_version: "1.0"
+template_version: "2.0"
 description: "A Coruscant operation — a named phase or parallel execution group within a mission"
 
 atomic_criteria: >
