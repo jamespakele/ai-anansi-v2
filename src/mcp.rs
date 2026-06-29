@@ -19,6 +19,7 @@ use crate::embed;
 use crate::export;
 use crate::pipeline::IngestContext;
 use crate::template::{MergeStrategy, TemplateClass};
+use crate::tender;
 use crate::wiki::WikiStore;
 
 // ---------------------------------------------------------------------------
@@ -500,6 +501,16 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                         "type": "object",
                         "properties": {}
                     }
+                },
+                {
+                    "name": "anansi_tender_run",
+                    "description": "Run the Web Tender maintenance pass on demand. Scans the knowledge graph for integrity issues (dangling edges, duplicates, broken wikilinks, circular refs, type consistency) and either reports (dry_run=true) or applies auto-fixes + flags items to the tender_queue (dry_run=false). Returns a JSON report with counts.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "dry_run": { "type": "boolean", "description": "If true (default), only report findings without modifying the DB. If false, execute auto-fixes and insert queue flags." }
+                        }
+                    }
                 }
             ]
         }),
@@ -554,6 +565,7 @@ async fn handle_tools_call(state: McpState, id: Value, params: Option<Value>) ->
         "anansi_wiki_crawl" => tool_wiki_crawl(state, id).await,
         "anansi_wiki_lint" => tool_wiki_lint(state, id).await,
         "anansi_export_wiki" => tool_wiki_export(state, id).await,
+        "anansi_tender_run" => tool_tender_run(state, id, args).await,
         other => json_rpc_err(id, -32601, &format!("Unknown tool: {other}")),
     }
 }
@@ -617,6 +629,59 @@ async fn tool_wiki_crawl(state: McpState, id: Value) -> Json<Value> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// anansi_tender_run
+// ---------------------------------------------------------------------------
+
+async fn tool_tender_run(state: McpState, id: Value, args: Value) -> Json<Value> {
+    let ctx = &state.ctx;
+    if !ctx.config.tender.enabled {
+        return json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&json!({
+                        "status": "disabled",
+                        "message": "Web Tender is disabled (set [tender] enabled = true to enable)."
+                    })).unwrap_or_default()
+                }]
+            }),
+        );
+    }
+
+    let dry_run = args
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    // Override config dry_run with the requested mode for this invocation
+    let mut config = ctx.config.clone();
+    config.tender.dry_run = dry_run;
+
+    match tender::run_tender_pass(&config, &ctx.db, &ctx.rules).await {
+        Ok(report) => json_rpc_ok(
+            id,
+            json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string_pretty(&json!({
+                        "status": "ok",
+                        "dry_run": dry_run,
+                        "notes_processed": report.notes_processed,
+                        "edges_removed": report.edges_removed,
+                        "duplicates_merged": report.duplicates_merged,
+                        "wikilinks_fixed": report.wikilinks_fixed,
+                        "flags_inserted": report.flags_inserted,
+                        "errors": report.errors,
+                    })).unwrap_or_default()
+                }]
+            }),
+        ),
+        Err(e) => json_rpc_err(id, -32000, &format!("Tender run failed: {e:#}")),
+    }
+}
+
 /// On-demand LLM semantic lint (Build-14). Disabled unless wiki + lint are on
 /// and an LLM backend builds.
 async fn tool_wiki_lint(state: McpState, id: Value) -> Json<Value> {
@@ -641,7 +706,14 @@ async fn tool_wiki_lint(state: McpState, id: Value) -> Json<Value> {
         Err(e) => return json_rpc_err(id, -32000, &format!("No LLM backend: {e}")),
     };
     let wiki = WikiStore::from_config(&ctx.config);
-    match crate::lint::run_lint(&ctx.db, &wiki, client.as_ref(), ctx.config.wiki.lint_batch_max).await {
+    match crate::lint::run_lint(
+        &ctx.db,
+        &wiki,
+        client.as_ref(),
+        ctx.config.wiki.lint_batch_max,
+    )
+    .await
+    {
         Ok(r) => json_rpc_ok(
             id,
             json!({
@@ -1300,7 +1372,10 @@ async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value
             eprintln!("[wiki] update remove-old failed for '{current_name}': {e}");
         }
     }
-    if let Err(e) = wiki.materialize(&ctx.db, &[note_id.clone()], new_name).await {
+    if let Err(e) = wiki
+        .materialize(&ctx.db, &[note_id.clone()], new_name)
+        .await
+    {
         eprintln!("[wiki] update materialize failed for '{new_name}': {e}");
     }
 
@@ -2231,7 +2306,11 @@ async fn tool_search_semantic(state: McpState, id: Value, args: Value) -> Json<V
         })
         .collect();
 
-    bump_access(&state, rows.iter().map(|r| r.get::<String, _>("id")).collect()).await;
+    bump_access(
+        &state,
+        rows.iter().map(|r| r.get::<String, _>("id")).collect(),
+    )
+    .await;
 
     let text = serde_json::to_string_pretty(&results).unwrap_or_default();
 

@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RuleRegistry {
     rules: HashMap<String, String>,
 }
@@ -49,11 +49,17 @@ impl RuleRegistry {
 }
 
 fn strip_frontmatter(content: &str) -> &str {
-    let rest = match content.strip_prefix("---\n").or_else(|| content.strip_prefix("---\r\n")) {
+    let rest = match content
+        .strip_prefix("---\n")
+        .or_else(|| content.strip_prefix("---\r\n"))
+    {
         Some(r) => r,
         None => return content,
     };
-    match rest.split_once("\n---\n").or_else(|| rest.split_once("\n---\r\n")) {
+    match rest
+        .split_once("\n---\n")
+        .or_else(|| rest.split_once("\n---\r\n"))
+    {
         Some((_, after)) => after.trim_start_matches('\n'),
         None => content,
     }
@@ -73,7 +79,12 @@ mod tests {
     fn loads_all_four_rules() {
         let dir = rules_dir();
         let registry = RuleRegistry::load(&dir).expect("should load rules");
-        for name in ["Atomicity", "Downstream-Flow", "Merge-Strategy", "Template-Schema"] {
+        for name in [
+            "Atomicity",
+            "Downstream-Flow",
+            "Merge-Strategy",
+            "Template-Schema",
+        ] {
             let body = registry.get(name);
             assert!(body.is_some(), "rule '{name}' not found");
             assert!(!body.unwrap().is_empty(), "rule '{name}' body is empty");

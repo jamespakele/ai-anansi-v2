@@ -702,13 +702,17 @@ pub async fn find_open_flag(
 }
 
 /// Find edges whose source or target note no longer exists in the notes table.
-pub async fn get_dangling_edges(pool: &DbPool) -> Result<Vec<EdgeRecord>> {
+pub async fn get_dangling_edges(pool: &DbPool, limit: i64, offset: i64) -> Result<Vec<EdgeRecord>> {
     let rows = sqlx::query_as::<_, EdgeRecord>(
         "SELECT e.* FROM edges e \
          LEFT JOIN notes n1 ON e.source_note_id = n1.id \
          LEFT JOIN notes n2 ON e.target_note_id = n2.id \
-         WHERE n1.id IS NULL OR n2.id IS NULL",
+         WHERE n1.id IS NULL OR n2.id IS NULL \
+         ORDER BY e.id \
+         LIMIT $1 OFFSET $2",
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -723,13 +727,21 @@ pub struct DuplicateEdgeRow {
     pub count: Option<i64>,
 }
 
-pub async fn get_duplicate_edges(pool: &DbPool) -> Result<Vec<DuplicateEdgeRow>> {
+pub async fn get_duplicate_edges(
+    pool: &DbPool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<DuplicateEdgeRow>> {
     let rows = sqlx::query_as::<_, DuplicateEdgeRow>(
         "SELECT source_note_id, target_note_id, edge_type, COUNT(*)::int8 as count \
          FROM edges \
          GROUP BY source_note_id, target_note_id, edge_type \
-         HAVING COUNT(*) > 1",
+         HAVING COUNT(*) > 1 \
+         ORDER BY source_note_id, target_note_id, edge_type \
+         LIMIT $1 OFFSET $2",
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -738,7 +750,11 @@ pub async fn get_duplicate_edges(pool: &DbPool) -> Result<Vec<DuplicateEdgeRow>>
 /// Find edges between the same pair of notes with contradictory types.
 /// Contradictory pairs are defined by a simple heuristic: types that are
 /// semantically opposite (e.g. works_at vs competitor_of).
-pub async fn get_conflicting_edges(pool: &DbPool) -> Result<Vec<EdgeRecord>> {
+pub async fn get_conflicting_edges(
+    pool: &DbPool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<EdgeRecord>> {
     let rows = sqlx::query_as::<_, EdgeRecord>(
         "SELECT e1.* FROM edges e1 \
          JOIN edges e2 ON e1.source_note_id = e2.source_note_id \
@@ -749,30 +765,42 @@ pub async fn get_conflicting_edges(pool: &DbPool) -> Result<Vec<EdgeRecord>> {
             OR (e1.edge_type = 'reports_to' AND e2.edge_type = 'manages') \
             OR (e1.edge_type = 'manages' AND e2.edge_type = 'reports_to') \
             OR (e1.edge_type = 'parent_of' AND e2.edge_type = 'child_of') \
-            OR (e1.edge_type = 'child_of' AND e2.edge_type = 'parent_of')",
+            OR (e1.edge_type = 'child_of' AND e2.edge_type = 'parent_of') \
+         ORDER BY e1.id \
+         LIMIT $1 OFFSET $2",
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
     .await?;
     Ok(rows)
 }
 
 /// Find notes that have no edges at all (neither as source nor target).
-pub async fn get_orphan_notes(pool: &DbPool) -> Result<Vec<NoteRecord>> {
+pub async fn get_orphan_notes(pool: &DbPool, limit: i64, offset: i64) -> Result<Vec<NoteRecord>> {
     let rows = sqlx::query(
         "SELECT n.* FROM notes n \
          LEFT JOIN edges e ON n.id = e.source_note_id OR n.id = e.target_note_id \
-         WHERE e.id IS NULL",
+         WHERE e.id IS NULL \
+         ORDER BY n.id \
+         LIMIT $1 OFFSET $2",
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
     .await?;
     Ok(rows.into_iter().map(row_to_note).collect())
 }
 
 /// Find notes with empty or null why and content fields.
-pub async fn get_stale_notes(pool: &DbPool) -> Result<Vec<NoteRecord>> {
+pub async fn get_stale_notes(pool: &DbPool, limit: i64, offset: i64) -> Result<Vec<NoteRecord>> {
     let rows = sqlx::query(
-        "SELECT * FROM notes WHERE (why IS NULL OR why = '') AND (content IS NULL OR content = '')",
+        "SELECT * FROM notes WHERE (why IS NULL OR why = '') AND (content IS NULL OR content = '') \
+         ORDER BY id \
+         LIMIT $1 OFFSET $2",
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
     .await?;
     Ok(rows.into_iter().map(row_to_note).collect())
@@ -780,7 +808,7 @@ pub async fn get_stale_notes(pool: &DbPool) -> Result<Vec<NoteRecord>> {
 
 /// Detect circular references in the edge graph using a recursive CTE.
 /// Returns all edges that are part of any cycle (A→B where a path exists from B back to A).
-pub async fn get_circular_refs(pool: &DbPool) -> Result<Vec<EdgeRecord>> {
+pub async fn get_circular_refs(pool: &DbPool, limit: i64, offset: i64) -> Result<Vec<EdgeRecord>> {
     let rows = sqlx::query_as::<_, EdgeRecord>(
         "WITH RECURSIVE edge_path AS ( \
            SELECT source_note_id, target_note_id, \
@@ -801,8 +829,12 @@ pub async fn get_circular_refs(pool: &DbPool) -> Result<Vec<EdgeRecord>> {
            SELECT 1 FROM edge_path ep \
            WHERE ep.source_note_id = e.target_note_id \
              AND ep.target_note_id = e.source_note_id \
-         )",
+         ) \
+         ORDER BY e.id \
+         LIMIT $1 OFFSET $2",
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -818,7 +850,11 @@ pub struct TypeViolationRow {
     pub edge_type: String,
 }
 
-pub async fn get_type_violations(pool: &DbPool) -> Result<Vec<TypeViolationRow>> {
+pub async fn get_type_violations(
+    pool: &DbPool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<TypeViolationRow>> {
     let rows = sqlx::query_as::<_, TypeViolationRow>(
         "SELECT e.id AS edge_id, n1.entity_type AS source_entity_type, \
                 n2.entity_type AS target_entity_type, e.edge_type \
@@ -830,8 +866,12 @@ pub async fn get_type_violations(pool: &DbPool) -> Result<Vec<TypeViolationRow>>
             OR (e.edge_type = 'reports_to' AND NOT (n1.entity_type = 'person' AND n2.entity_type = 'person')) \
             OR (e.edge_type = 'manages' AND NOT (n1.entity_type = 'person' AND n2.entity_type = 'person')) \
             OR (e.edge_type = 'parent_of' AND NOT (n1.entity_type = 'organization' AND n2.entity_type = 'organization')) \
-            OR (e.edge_type = 'child_of' AND NOT (n1.entity_type = 'organization' AND n2.entity_type = 'organization'))",
+            OR (e.edge_type = 'child_of' AND NOT (n1.entity_type = 'organization' AND n2.entity_type = 'organization')) \
+         ORDER BY e.id \
+         LIMIT $1 OFFSET $2",
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -987,6 +1027,85 @@ pub async fn remove_broken_wikilinks(
         .await?;
 
     tx.commit().await?;
+    Ok(())
+}
+
+/// Fetch all edges sharing a (source, target, type) tuple — used to pick the
+/// lowest-id keeper when collapsing exact-duplicate edge groups.
+pub async fn get_edges_for_group(
+    pool: &DbPool,
+    source_note_id: &str,
+    target_note_id: &str,
+    edge_type: &str,
+) -> Result<Vec<EdgeRecord>> {
+    let rows = sqlx::query_as::<_, EdgeRecord>(
+        "SELECT * FROM edges WHERE source_note_id = $1 AND target_note_id = $2 AND edge_type = $3 ORDER BY id ASC",
+    )
+    .bind(source_note_id)
+    .bind(target_note_id)
+    .bind(edge_type)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Fetch all notes sharing a (match_key, entity_type) tuple — used to pick the
+/// lowest-id keeper when merging exact-duplicate note groups.
+pub async fn get_notes_for_group(
+    pool: &DbPool,
+    match_key: &str,
+    entity_type: &str,
+) -> Result<Vec<NoteRecord>> {
+    let rows = sqlx::query_as::<_, NoteRecord>(
+        "SELECT * FROM notes WHERE match_key = $1 AND entity_type = $2 ORDER BY id ASC",
+    )
+    .bind(match_key)
+    .bind(entity_type)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Immediately mark a tender flag as auto-resolved (resolved_by = 'auto').
+pub async fn resolve_auto_flag(pool: &DbPool, id: &str) -> Result<()> {
+    let now = now_rfc3339();
+    sqlx::query(
+        "UPDATE tender_queue SET status = 'resolved', resolved_at = $1, resolved_by = 'auto' WHERE id = $2",
+    )
+    .bind(&now)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Persist one Web Tender run-log row. Called at the end of each pass so the
+/// operator can audit tender activity over time.
+pub async fn insert_tender_log(
+    pool: &DbPool,
+    notes_processed: i64,
+    edges_removed: i64,
+    duplicates_merged: i64,
+    wikilinks_fixed: i64,
+    flags_inserted: i64,
+    errors: i64,
+    dry_run: bool,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO tender_log \
+         (notes_processed, edges_removed, duplicates_merged, wikilinks_fixed, \
+          flags_inserted, errors, dry_run) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(notes_processed)
+    .bind(edges_removed)
+    .bind(duplicates_merged)
+    .bind(wikilinks_fixed)
+    .bind(flags_inserted)
+    .bind(errors)
+    .bind(dry_run)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

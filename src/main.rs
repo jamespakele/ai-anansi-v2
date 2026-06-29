@@ -586,8 +586,9 @@ async fn cmd_serve(root: &Path) -> Result<()> {
     if ctx.config.tender.enabled {
         let t_config = Arc::new(ctx.config.clone());
         let t_pool = ctx.db.clone();
+        let t_rules = Arc::new(ctx.rules.clone());
         tokio::spawn(async move {
-            tender::run_tender_watcher(t_config, t_pool).await;
+            tender::run_tender_watcher(t_config, t_pool, t_rules).await;
         });
         eprintln!(
             "[anansi2] web tender watcher started (interval: {}s)",

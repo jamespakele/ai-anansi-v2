@@ -161,3 +161,11 @@ The `/code-review high` pass over the whole `feat/llm-wiki` branch (45 agents) f
 **`tool_update_note` is not wired to the wiki** — Build-12 wired capture/delete/archive + the ingest path, but not `anansi_update_note`. A note whose `name` or `entity_type` changes via update orphans its old `{slug}.{type}.md` file (no removal, no re-projection). Goal B's crawl garbage-collects orphans; alternatively wire `update_note` to `remove_note(old)` + `materialize(new)` in a focused follow-up.
 
 **`index.md` is fully rebuilt (full notes-table scan + whole-file rewrite) on every capture** — O(N) per write. This was an explicit "Ask First" the spec resolved in favor of full rebuild (simple, correct at Karpathy's moderate scale). Revisit with an incremental index update when the wiki approaches the Goal C tipping point.
+
+## From Web Tender Code Review Fixes (Round 1) Review
+
+**Resolved audit rows accumulate forever**
+`audit_auto_fix` inserts a `tender_queue` row (severity='info', status='resolved') for every auto-fix, but there's no retention/cleanup. On a long-running watcher with frequent passes, `tender_queue` grows unboundedly with resolved info rows. Consider a periodic `DELETE FROM tender_queue WHERE status='resolved' AND resolved_at < now() - interval '30 days'` or a retention job.
+
+**Conflicting edges double-count**
+`get_conflicting_edges` uses a symmetric WHERE clause, so each conflicting pair yields two rows (e1 and e2). The flag count is therefore 2× the real conflict count, and `insert_or_update_flag`'s dedup (by category only, match_key=None) means the second insert returns Ok(false) and isn't counted. Pre-existing from Build-10, not introduced by the fixes.
