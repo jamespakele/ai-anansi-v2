@@ -1379,6 +1379,40 @@ async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value
         eprintln!("[wiki] update materialize failed for '{new_name}': {e}");
     }
 
+    // Fire-and-forget: re-project connected notes so their Connections section
+    // gets the updated wikilink (e.g. [[nani-winter.person]] → [[nicky-winter.person]]).
+    // Runs in background — doesn't block the MCP response.
+    if new_name != current_name || new_entity_type != current_entity_type {
+        let db = ctx.db.clone();
+        let wiki = WikiStore::from_config(&ctx.config);
+        let nid = note_id.clone();
+        tokio::spawn(async move {
+            match db::edges_for_note(&db, &nid).await {
+                Ok(edges) => {
+                    let affected: Vec<String> = edges
+                        .iter()
+                        .map(|e| {
+                            if e.source_note_id == nid {
+                                e.target_note_id.clone()
+                            } else {
+                                e.source_note_id.clone()
+                            }
+                        })
+                        .collect();
+                    if !affected.is_empty() {
+                        if let Err(e) = wiki.materialize(&db, &affected, "rename").await {
+                            eprintln!(
+                                "[wiki] rename re-projection failed for {} connected notes: {e}",
+                                affected.len()
+                            );
+                        }
+                    }
+                }
+                Err(e) => eprintln!("[wiki] failed to query edges for rename re-projection: {e}"),
+            }
+        });
+    }
+
     json_rpc_ok(
         id,
         json!({
