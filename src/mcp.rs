@@ -1381,8 +1381,10 @@ async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value
 
     // Fire-and-forget: re-project connected notes so their Connections section
     // gets the updated wikilink (e.g. [[nani-winter.person]] → [[nicky-winter.person]]).
-    // Runs in background — doesn't block the MCP response.
-    if new_name != current_name || new_entity_type != current_entity_type {
+    // Only runs when the wiki is enabled. Background — doesn't block the MCP response.
+    if ctx.config.wiki.enabled
+        && (new_name != current_name || new_entity_type != current_entity_type)
+    {
         let db = ctx.db.clone();
         let wiki = WikiStore::from_config(&ctx.config);
         let nid = note_id.clone();
