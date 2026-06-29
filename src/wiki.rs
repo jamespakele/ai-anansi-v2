@@ -8,7 +8,7 @@
 //! ```text
 //! ~/llm-wiki/                 ← the configured [wiki] dir (default ~/llm-wiki)
 //!   <slug>.<entity_type>.md   ← one file per note (frontmatter + [[wikilinks]])
-//!   index.md                  ← catalog grouped by entity_type
+//!   index.md                  ← catalog grouped by PARA (Projects, Areas, Resources, Archives)
 //!   log.md                    ← append-only ingest journal
 //! ```
 //!
@@ -242,7 +242,11 @@ impl WikiStore {
                 .map(|m| m.len())
                 .unwrap_or(0);
             resident_files.insert(fname);
-            resident_entries.push((note.entity_type.clone(), note.name.clone(), note.lede.clone()));
+            resident_entries.push((
+                note.entity_type.clone(),
+                note.name.clone(),
+                note.lede.clone(),
+            ));
             report.notes_projected += 1;
         }
 
@@ -268,7 +272,11 @@ impl WikiStore {
                     resident_entries.clear();
                     for s in &summaries {
                         resident_files.insert(expected_filename(&s.entity_type, &s.name));
-                        resident_entries.push((s.entity_type.clone(), s.name.clone(), s.lede.clone()));
+                        resident_entries.push((
+                            s.entity_type.clone(),
+                            s.name.clone(),
+                            s.lede.clone(),
+                        ));
                     }
                 }
                 Err(e) => {
@@ -295,35 +303,35 @@ impl WikiStore {
                     report.errors += 1;
                 }
                 Ok(dir) => {
-            for entry in dir {
-                let entry = match entry {
-                    Ok(e) => e,
-                    Err(_) => continue,
-                };
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                    continue;
-                }
-                let fname = match path.file_name().and_then(|s| s.to_str()) {
-                    Some(f) => f.to_string(),
-                    None => continue,
-                };
-                if resident_files.contains(&fname) {
-                    continue;
-                }
-                if let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) {
-                    if mtime >= crawl_start {
-                        continue;
+                    for entry in dir {
+                        let entry = match entry {
+                            Ok(e) => e,
+                            Err(_) => continue,
+                        };
+                        let path = entry.path();
+                        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                            continue;
+                        }
+                        let fname = match path.file_name().and_then(|s| s.to_str()) {
+                            Some(f) => f.to_string(),
+                            None => continue,
+                        };
+                        if resident_files.contains(&fname) {
+                            continue;
+                        }
+                        if let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) {
+                            if mtime >= crawl_start {
+                                continue;
+                            }
+                        }
+                        match std::fs::remove_file(&path) {
+                            Ok(()) => report.orphans_removed += 1,
+                            Err(e) => {
+                                eprintln!("[crawl] failed to remove {}: {e}", path.display());
+                                report.errors += 1;
+                            }
+                        }
                     }
-                }
-                match std::fs::remove_file(&path) {
-                    Ok(()) => report.orphans_removed += 1,
-                    Err(e) => {
-                        eprintln!("[crawl] failed to remove {}: {e}", path.display());
-                        report.errors += 1;
-                    }
-                }
-            }
                 }
             }
         }
@@ -420,24 +428,55 @@ impl WikiStore {
         self.write_index(&entries)
     }
 
-    /// Write `index.md` from an explicit entry set, grouped by entity_type
-    /// (Karpathy catalog). Callers decide the membership: all-live or resident.
+    /// Write `index.md` from an explicit entry set, grouped by PARA section
+    /// (Projects, Areas, Resources, Archives). Within Resources, entries are
+    /// grouped by entity_type. Callers decide the membership: all-live or resident.
     fn write_index(&self, entries: &[IndexEntry]) -> Result<()> {
         let mut by_type: BTreeMap<&str, Vec<&IndexEntry>> = BTreeMap::new();
         for e in entries {
             by_type.entry(e.0.as_str()).or_default().push(e);
         }
 
+        // PARA section order + entity_type grouping within Resources.
+        // Returns (section_number, section_label, subheading_label_or_none).
+        let para_section = |etype: &str| -> (u8, &'static str, Option<&'static str>) {
+            match etype {
+                "project" => (1, "Projects", None),
+                "area" => (2, "Areas", None),
+                et if et.starts_with("archive-") => (4, "Archives", None),
+                // Everything else is Resources (PARA §3).
+                _ => (3, "Resources", Some(etype)),
+            }
+        };
+
+        // Sort entries by PARA section, then by entity_type within Resources.
+        let mut sorted: Vec<(&str, &Vec<&IndexEntry>)> = by_type.iter().collect();
+        sorted.sort_by_key(|(et, _)| para_section(et));
+
         let mut out = String::new();
         out.push_str("# Anansi LLM-Wiki — Index\n\n");
         out.push_str(&format!(
-            "Catalog of {} notes, grouped by type. Source of truth: Postgres.\n\n",
+            "Catalog of {} notes, organized by PARA (Projects, Areas, Resources, Archives).\n\n",
             entries.len()
         ));
-        for (etype, notes) in &by_type {
-            let heading = if etype.is_empty() { "note" } else { etype };
-            out.push_str(&format!("## {heading}\n\n"));
-            for (et, name, lede) in notes {
+
+        let mut current_section: u8 = 0;
+        for (etype, notes) in &sorted {
+            let (section, label, sub) = para_section(etype);
+
+            // Emit section heading when we enter a new PARA section.
+            if section != current_section {
+                current_section = section;
+                out.push_str(&format!("## {section}. {label}\n\n"));
+            }
+
+            // Within Resources, emit a subheading per entity_type.
+            if section == 3 {
+                let sub_label = sub.unwrap_or(etype);
+                out.push_str(&format!("### {sub_label}\n\n"));
+            }
+
+            for (et, name, lede) in *notes {
                 let link = wikilink(et, name);
                 match lede.as_deref().map(oneline) {
                     Some(l) if !l.is_empty() => out.push_str(&format!("- {link} — {l}\n")),
@@ -538,14 +577,22 @@ fn edge_other<'a>(id: &str, e: &'a EdgeRecord) -> &'a str {
 /// `WikiStore::note_path` so crawl orphan-GC doesn't delete real note files.
 fn expected_filename(entity_type: &str, name: &str) -> String {
     let slug = slug_name(name);
-    let ext = if entity_type.is_empty() { "note" } else { entity_type };
+    let ext = if entity_type.is_empty() {
+        "note"
+    } else {
+        entity_type
+    };
     format!("{slug}.{ext}.md")
 }
 
 /// Obsidian typed wikilink — matches `vault.rs::wikilink`.
 fn wikilink(entity_type: &str, name: &str) -> String {
     let slug = slug_name(name);
-    let ext = if entity_type.is_empty() { "note" } else { entity_type };
+    let ext = if entity_type.is_empty() {
+        "note"
+    } else {
+        entity_type
+    };
     format!("[[{slug}.{ext}|{name}]]")
 }
 
@@ -671,7 +718,10 @@ mod tests {
         let n = note("a", "person", "Ian Kitajima");
         let edges = vec![edge("a", "b", "works_at")];
         let mut names = HashMap::new();
-        names.insert("b".to_string(), ("PICHTR".to_string(), "organization".to_string()));
+        names.insert(
+            "b".to_string(),
+            ("PICHTR".to_string(), "organization".to_string()),
+        );
 
         let md = render_note_markdown(&n, &edges, &names);
 
@@ -708,8 +758,18 @@ mod tests {
     fn expected_filename_matches_note_path_basename() {
         // Crawl orphan-GC compares basenames against expected_filename; if these
         // ever diverge from note_path, the crawl would delete live note files.
-        let store = WikiStore { root: PathBuf::from("/wiki"), enabled: true, max_bytes: 0, max_notes: 0, crawl_enabled: false };
-        for (etype, name) in [("person", "Ian Kitajima"), ("", "Fallback"), ("concept", "Sovereign AI")] {
+        let store = WikiStore {
+            root: PathBuf::from("/wiki"),
+            enabled: true,
+            max_bytes: 0,
+            max_notes: 0,
+            crawl_enabled: false,
+        };
+        for (etype, name) in [
+            ("person", "Ian Kitajima"),
+            ("", "Fallback"),
+            ("concept", "Sovereign AI"),
+        ] {
             let path = store.note_path(etype, name);
             let basename = path.file_name().unwrap().to_str().unwrap();
             assert_eq!(basename, expected_filename(etype, name));
@@ -719,7 +779,7 @@ mod tests {
     #[test]
     fn resident_cutoff_respects_caps() {
         let sizes = [10u64, 10, 10, 10, 10]; // 50 bytes total
-        // Unlimited → all resident.
+                                             // Unlimited → all resident.
         assert_eq!(WikiStore::resident_cutoff(&sizes, 0, 0), 5);
         // Count cap.
         assert_eq!(WikiStore::resident_cutoff(&sizes, 0, 3), 3);
@@ -739,7 +799,13 @@ mod tests {
 
     #[test]
     fn disabled_store_is_a_noop() {
-        let store = WikiStore { root: PathBuf::from("/definitely/not/writable/xyz"), enabled: false, max_bytes: 0, max_notes: 0, crawl_enabled: false };
+        let store = WikiStore {
+            root: PathBuf::from("/definitely/not/writable/xyz"),
+            enabled: false,
+            max_bytes: 0,
+            max_notes: 0,
+            crawl_enabled: false,
+        };
         let n = note("a", "person", "Nobody");
         // Neither call should touch the filesystem or error.
         assert!(store.write_note(&n, &[], &HashMap::new()).is_ok());
@@ -749,7 +815,13 @@ mod tests {
     #[test]
     fn remove_missing_file_is_silent() {
         let dir = std::env::temp_dir().join(format!("anansi-wiki-test-{}", std::process::id()));
-        let store = WikiStore { root: dir, enabled: true, max_bytes: 0, max_notes: 0, crawl_enabled: false };
+        let store = WikiStore {
+            root: dir,
+            enabled: true,
+            max_bytes: 0,
+            max_notes: 0,
+            crawl_enabled: false,
+        };
         // No file written yet → removal is a silent success.
         assert!(store.remove_note("person", "Ghost").is_ok());
     }
@@ -758,7 +830,13 @@ mod tests {
     fn write_then_path_roundtrip() {
         let dir = std::env::temp_dir().join(format!("anansi-wiki-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let store = WikiStore { root: dir.clone(), enabled: true, max_bytes: 0, max_notes: 0, crawl_enabled: false };
+        let store = WikiStore {
+            root: dir.clone(),
+            enabled: true,
+            max_bytes: 0,
+            max_notes: 0,
+            crawl_enabled: false,
+        };
         let n = note("a", "person", "Ian Kitajima");
 
         store.write_note(&n, &[], &HashMap::new()).unwrap();
