@@ -438,19 +438,20 @@ impl WikiStore {
         }
 
         // PARA section order + entity_type grouping within Resources.
-        // Returns (section_number, section_label, subheading_label_or_none).
-        let para_section = |etype: &str| -> (u8, &'static str, Option<&'static str>) {
+        // Returns (section_number, section_label).
+        let para_section = |etype: &str| -> (u8, &'static str) {
             match etype {
-                "project" => (1, "Projects", None),
-                "area" => (2, "Areas", None),
-                et if et.starts_with("archive-") => (4, "Archives", None),
+                "project" => (1, "Projects"),
+                "area" => (2, "Areas"),
+                et if et.starts_with("archive-") => (4, "Archives"),
                 // Everything else is Resources (PARA §3).
-                _ => (3, "Resources", Some(etype)),
+                _ => (3, "Resources"),
             }
         };
 
         // Sort entries by PARA section, then by entity_type within Resources.
-        let mut sorted: Vec<(&str, &Vec<&IndexEntry>)> = by_type.iter().collect();
+        let mut sorted: Vec<(&str, &Vec<&IndexEntry>)> =
+            by_type.iter().map(|(k, v)| (*k, v)).collect();
         sorted.sort_by_key(|(et, _)| para_section(et));
 
         let mut out = String::new();
@@ -462,7 +463,7 @@ impl WikiStore {
 
         let mut current_section: u8 = 0;
         for (etype, notes) in &sorted {
-            let (section, label, sub) = para_section(etype);
+            let (section, label) = para_section(etype);
 
             // Emit section heading when we enter a new PARA section.
             if section != current_section {
@@ -472,8 +473,7 @@ impl WikiStore {
 
             // Within Resources, emit a subheading per entity_type.
             if section == 3 {
-                let sub_label = sub.unwrap_or(etype);
-                out.push_str(&format!("### {sub_label}\n\n"));
+                out.push_str(&format!("### {etype}\n\n"));
             }
 
             for (et, name, lede) in *notes {
