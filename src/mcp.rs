@@ -185,6 +185,11 @@ async fn handle_json_rpc(
         "initialize" => handle_initialize(req.id),
         "tools/list" => handle_tools_list(req.id),
         "tools/call" => handle_tools_call(state, req.id, req.params).await,
+        // MCP keepalive probe — spec requires an empty result.
+        "ping" => json_rpc_ok(req.id, json!({})),
+        // MCP notifications carry no id and expect no response per JSON-RPC,
+        // but this handler must return a body — emit empty JSON the client ignores.
+        m if m.starts_with("notifications/") => Json(json!({})),
         _ => json_rpc_err(req.id, -32601, "Method not found"),
     }
 }
