@@ -8,11 +8,10 @@ public_url = "https://anansi.pakele.ai"
 api_key = "kip_ak_7f3e9d2b4a1c8056"
 
 [llm]
-backend = "gemini"
-timeout_s = 300
-
-[llm.gemini]
-model = "gemini-2.5-pro"
+backend = "ollama"
+url     = "http://host.docker.internal:11434"
+model   = "deepseek-v4-flash:0731-cloud"
+timeout_s = 600
 
 [llm.decomposition]
 temperature = 0.2
@@ -57,4 +56,4 @@ queue_dir  = "/data/q-atomize"
 queue_poll_interval_secs = 10
 # skills_dir defaults to /app/skills (baked into the image)
 poll_interval_secs = 30
-llm_backend = "gemini"
+llm_backend = "ollama"

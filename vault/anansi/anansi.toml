@@ -5,10 +5,9 @@ templates_dir = "anansi/templates"
 db_file      = "anansi/web.db"
 
 [llm]
-backend   = "gemini"
-# Ollama fields kept for reference — not used when backend = "gemini"
+backend   = "ollama"
 url       = "http://localhost:11434"
-model     = "gemini-2.5-pro"
+model     = "deepseek-v4-flash:0731-cloud"
 n_ctx     = 16384
 timeout_s = 600
 
@@ -26,17 +25,6 @@ json_mode   = true
 temperature = 0.5
 max_tokens  = 16384
 json_mode   = false
-
-[llm.gemini]
-# cli_path omitted — searches PATH first (uses Google OAuth / subscription quota)
-# Falls back to ANANSI_GEMINI_API_KEY env var if CLI not found or not authenticated
-model     = "gemini-2.5-pro"
-timeout_s = 300
-
-[pipeline]
-# batch mode: collapses all Pass-3 calls + Pass-4 into one Gemini call
-# ideal for gemini-2.5-pro's large context window
-mode = "batch"
 
 [server]
 mcp_port  = 3738
