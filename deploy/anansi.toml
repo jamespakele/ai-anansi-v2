@@ -57,3 +57,12 @@ queue_poll_interval_secs = 10
 # skills_dir defaults to /app/skills (baked into the image)
 poll_interval_secs = 30
 llm_backend = "ollama"
+
+
+# ── DEPLOY NOTE (manual step on VPS) ─────────────────────────────────────────
+# This file is the repo reference config. The running container bind-mounts
+# /data/anansi/anansi.toml from the host VPS — this file is NOT auto-deployed.
+# When you change the LLM backend here, you MUST also manually update:
+#   /docker/ai-anansi-v2/data/anansi/anansi.toml
+# and restart: docker restart ai-anansi-v2-anansi-1
+# Otherwise the live container keeps using the old config.
