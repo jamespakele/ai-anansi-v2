@@ -268,6 +268,12 @@ Only when the relationship is explicit. Don't infer edges.
 
 ---
 
+## Cross-system linking (optional)
+
+When a TickTick task is created alongside an Anansi note, both systems may reference each other. See `task-manager/references/placement-rules.md` §Bidirectional linking for the canonical contract. Cross-system linking is optional — a nice-to-have, not a requirement.
+
+---
+
 ## Error handling
 
 | Situation | Action |

@@ -16,13 +16,6 @@ description: >
   self".
 argument-hint: "[file path, pasted content, atomized .md, or entity facts]"
 config:
-  # processing: "server" — upload raw content to server inbox, fire and forget.
-  #   The server runs the full pipeline (para-process → sb-atomize → ingest → wiki).
-  #   Fastest path. No client-side LLM work. Best for large files, batches, URLs.
-  #
-  # processing: "local" — process everything client-side (current behavior).
-  #   The agent extracts, identifies entities, compresses, then calls
-  #   anansi_ingest_atomized + wiki-ingest-atomized. Slower but reviewable.
   processing: server
 ---
 
@@ -71,9 +64,24 @@ Read the `config.processing` flag from this skill's frontmatter:
 
 **If `processing: server`:**
 
-1. Read `../anansi-ingest-file/SKILL.md`.
-2. Execute it with the same input (file path, URL, or pasted text).
-3. Return its confirmation. **Stop here** — the server handles everything.
+1. **Pre-process URLs first.** If the input is a bare URL (YouTube, article, etc.), load `../anansi-url-preprocessing/SKILL.md` and execute it to fetch the actual content (transcript or page text). Use the resolved text/file as the input for step 2. Never queue a bare URL — the server-side LLM will create a pointer note with no content.
+2. Read `../anansi-ingest-file/SKILL.md`.
+3. Execute it with the resolved content (file path or extracted text) as input.
+4. Return its confirmation, including the filename that was queued.
+5. **Stop here** — the server handles everything.
+
+> **Verification gap.** After queuing, there is no automatic feedback loop
+> telling you whether the server-side pipeline completed. The user may later
+> ask "did that file make it into Anansi?" To answer:
+> - Use `anansi_search` with the filename or a distinctive phrase from the
+>   content to see if notes were created.
+> - Use `anansi_filter` with `entity_type: "source"` and a date range to
+>   list recently ingested sources.
+> - If the MCP server is unreachable (port 3738 down, SSH not configured),
+>   you cannot verify server-side processing from the client. Tell the user
+>   the file was queued but you can't confirm processing without server
+>   access, and suggest they check the VPS directly or re-enable the MCP
+>   connector.
 
 **If `processing: local`:**
 
@@ -274,6 +282,7 @@ If `anansi_ingest_atomized` returns an error:
 | Entity count is ambiguous (1 vs 2+) | Err toward Path B. The pipeline handles single entities fine and is more thorough. |
 | User pasted only a TOC file | Stop. The TOC is a manifest, not content. Ask for the atomized file. |
 | Anansi MCP not connected | Tell the user. Save the atomized output to disk so they can ingest later when the connector is back. |
+| Input is a bare URL (YouTube, article, etc.) and content extraction failed | Stop. Tell the user the content couldn't be fetched. Do not queue a bare URL — the server-side LLM will hallucinate. |
 
 ---
 
@@ -305,6 +314,7 @@ client side.
 
 - [ ] Input classified correctly (quick note / atomized / single entity / multi-entity)
 - [ ] Processing mode checked (`server` or `local`)
+- [ ] If `processing: server`: URL content extracted before queuing (never queue bare URLs)
 - [ ] If `processing: server`: file uploaded to inbox, confirmation received
 - [ ] If `processing: local`: all pipeline stages completed without error
 - [ ] If `processing: local`: `wiki-ingest-atomized` called before `anansi_ingest_atomized`
