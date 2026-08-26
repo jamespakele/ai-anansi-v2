@@ -332,7 +332,7 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                 },
                 {
                     "name": "anansi_capture",
-                    "description": "Quick-capture a single note (person, event, organization, topic, etc.) without atomization. Upserts by match_key — safe to call multiple times for the same entity.",
+                    "description": "Quick-capture a single note (person, event, organization, topic, etc.) without atomization. Upserts by match_key — safe to call multiple times for the same entity. Optionally attach the note to an outline via attach_to_outline (creates a part_of edge and appends the note's match_key to the outline content).",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
@@ -342,7 +342,8 @@ fn handle_tools_list(id: Value) -> Json<Value> {
                             "why": { "type": "string", "description": "Optional. Why this entity matters — one sentence of context." },
                             "content": { "type": "string", "description": "Optional. Additional details, bullet points, structured info." },
                             "match_key": { "type": "string", "description": "Optional. Override the auto-computed match_key. Only honored for entity_type 'anansi_config' (e.g. 'anansi_config:template:place'). Ignored for all other entity types." },
-                            "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." }
+                            "source": { "type": "string", "default": "mcp", "description": "Call source. Set to 'skill' by the anansi skill — do not override." },
+                            "attach_to_outline": { "type": "string", "description": "Optional. match_key or id of an outline note to attach this note to. Creates a part_of edge (this note → outline) and appends this note's match_key to the outline's content field. Replaces the manual 3-call capture+relate+update pattern. No-op when omitted." }
                         },
                         "required": ["entity_type", "name", "lede"]
                     }
@@ -913,7 +914,7 @@ async fn tool_get(state: McpState, id: Value, args: Value) -> Json<Value> {
 // anansi_edges  (BFS via edges_for_note + visited HashSet, depth 1–5)
 // ---------------------------------------------------------------------------
 
-async fn tool_edges(state: McpState, id: Value, args: Value) -> Json<Value> {
+pub async fn tool_edges(state: McpState, id: Value, args: Value) -> Json<Value> {
     let start_id = match args.get("id").and_then(|v| v.as_str()) {
         Some(i) => i.to_string(),
         None => return json_rpc_err(id, -32602, "Missing required argument: id"),
@@ -1441,7 +1442,7 @@ async fn tool_update_note(state: McpState, id: Value, args: Value) -> Json<Value
 // anansi_capture
 // ---------------------------------------------------------------------------
 
-async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
+pub async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
     let ctx = &state.ctx;
 
     if let Some(err) = check_skill_source(&id, &args) {
@@ -1554,6 +1555,87 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
         eprintln!("[wiki] capture materialize failed for '{name}': {e}");
     }
 
+    // Optional: attach the captured note to an outline via a part_of edge and
+    // append the note's match_key to the outline content. Replaces the manual
+    // 3-call capture + relate + update pattern. No-op when omitted.
+    let attached_to: Option<String> =
+        if let Some(target) = args
+            .get("attach_to_outline")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            // Resolve the outline by match_key (contains ':') or by id (UUID).
+            let outline = if target.contains(':') {
+                db::find_note_by_match_key(&ctx.db, target).await.ok().flatten()
+            } else {
+                db::get_note(&ctx.db, target).await.ok().flatten()
+            };
+            match outline {
+                Some(outline_note) => {
+                    // Guard: skip self-attach (prevents self-loop part_of edge).
+                    if outline_note.id == note_id {
+                        None
+                    } else {
+                        // part_of edge: captured note -> outline, manual sentinel source.
+                        let edge = EdgeRecord {
+                            id: Uuid::new_v4().to_string(),
+                            source_note_id: note_id.clone(),
+                            target_note_id: outline_note.id.clone(),
+                            edge_type: "part_of".to_string(),
+                            why: Some(format!(
+                                "Captured note {} attached to outline {}",
+                                match_key, outline_note.match_key
+                            )),
+                            from_source: db::MANUAL_SOURCE_ID.to_string(),
+                            weight: 1.0,
+                            metadata: None,
+                            created_at: now_rfc3339(),
+                        };
+                        if let Err(e) = db::insert_edge_if_not_exists(&ctx.db, &edge).await {
+                            eprintln!("[capture] attach part_of edge failed: {e}");
+                        }
+
+                        // Append the captured note's match_key to the outline content.
+                        let append = format!("\n{match_key}");
+                        let upd = sqlx::query(
+                            "UPDATE notes SET \
+                                content = CASE WHEN content IS NULL THEN $2 \
+                                             ELSE content || $2 END, \
+                                updated_at = $3 \
+                             WHERE id = $1",
+                        )
+                        .bind(&outline_note.id)
+                        .bind(&append)
+                        .bind(now_rfc3339())
+                        .execute(&ctx.db)
+                        .await;
+                        if let Err(e) = upd {
+                            eprintln!("[capture] outline content append failed: {e}");
+                        }
+
+                        // Re-project the outline so the appended line shows in the wiki (non-fatal).
+                        let wiki = WikiStore::from_config(&ctx.config);
+                        if let Err(e) = wiki
+                            .materialize(&ctx.db, &[outline_note.id.clone()], "capture-attach")
+                            .await
+                        {
+                            eprintln!("[wiki] capture-attach outline materialize failed: {e}");
+                        }
+                        Some(outline_note.match_key.clone())
+                    }
+                }
+                None => {
+                    return json_rpc_err(
+                        id,
+                        -32000,
+                        &format!("attach_to_outline: outline not found for '{target}'"),
+                    );
+                }
+            }
+        } else {
+            None
+        };
+
     let status = if existed { "updated" } else { "created" };
 
     json_rpc_ok(
@@ -1566,6 +1648,7 @@ async fn tool_capture(state: McpState, id: Value, args: Value) -> Json<Value> {
                     "note_id": note_id,
                     "match_key": match_key,
                     "name": name,
+                    "attached_to": attached_to,
                 })).unwrap_or_default()
             }]
         }),

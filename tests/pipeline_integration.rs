@@ -110,6 +110,12 @@ async fn make_context(
         pipeline: PipelineConfig { mode: None },
         inbox: InboxConfig::default(),
         wiki: WikiConfig::default(),
+        tender: anansi2::config::TenderConfig {
+            enabled: false,
+            interval_secs: 3600,
+            batch_size: 100,
+            dry_run: true,
+        },
         database_url,
     };
 
