@@ -242,6 +242,18 @@ design — Projects and Areas are stable PARA primitives and the field set is bo
 3. **Update this README's per-template section** if the change is structurally significant (new required field, semantic shift, citation update).
 4. **Recompile and restart** the Anansi server so the new templates are picked up. If you also maintain a DB override, run `anansi_reload_templates` to refresh the runtime cache without a restart.
 
+### ⚠ Updating an already-seeded template (maintenance trap)
+
+`seed_templates_to_db` is **insert-only** — it seeds a template note once (if the `match_key` is absent) and *never overwrites* (`src/main.rs`, "insert only if the match_key doesn't already exist"). After a template's first seeding, the DB row — not the file — is the runtime source of truth (`load_from_db` runs after the disk load). Consequence: **a later edit to the canonical file alone will never take effect on a running server, even after rebuild + redeploy.**
+
+To change a base template after it has seeded (e.g. its `floor_prompt`, `sources:` key, or `template_version`):
+
+1. Commit the file change as usual.
+2. Patch the corresponding `anansi_config:template:<name>` note in Postgres — use `anansi_update_note` (replace, not append: capture's upsert concatenates content, which would corrupt the YAML frontmatter) or a direct SQL update.
+3. Run `anansi_reload_templates` to hot-swap the registry; verify with `anansi_get` on the match_key.
+
+Until the seed path gets version-aware upserts, the DB note and the file drift silently if step 2 is skipped — keep them in lock-step manually.
+
 ---
 
 ## Why this matters
