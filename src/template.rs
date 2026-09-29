@@ -284,6 +284,7 @@ impl TemplateRegistry {
             "research_paper"  => "research",
             "email_thread"    => "email",
             "youtube_video"   => "youtube",
+            "generic" | "generic_prose" => "generic",
             _                 => "",
         }
     }

@@ -22,7 +22,7 @@ use anansi2::wiki::WikiStore;
 // Embedded seed files (compile-time include_str!)
 // ---------------------------------------------------------------------------
 
-// Templates (37 files) — canonical source: llm/plugins/anansi-config.plugin/references/templates/
+// Templates (38 files) — canonical source: llm/plugins/anansi-config.plugin/references/templates/
 // utility
 const TMPL_ACTION_ITEM_LIST: &str =
     include_str!("../llm/plugins/anansi-config.plugin/references/templates/action_item_list.md");
@@ -103,6 +103,8 @@ const TMPL_RESEARCH_SECTION: &str =
     include_str!("../llm/plugins/anansi-config.plugin/references/templates/research-section.md");
 const TMPL_YOUTUBE_CHAPTER: &str =
     include_str!("../llm/plugins/anansi-config.plugin/references/templates/youtube-chapter.md");
+const TMPL_GENERAL: &str =
+    include_str!("../llm/plugins/anansi-config.plugin/references/templates/general.md");
 
 // Rules (4 files)
 const RULE_ATOMICITY: &str = include_str!("../%Rules/%Atomicity.md");
@@ -223,6 +225,7 @@ const SEED_TEMPLATES: &[(&str, &str)] = &[
     ("presentation-slide.md", TMPL_PRESENTATION_SLIDE),
     ("research-section.md", TMPL_RESEARCH_SECTION),
     ("youtube-chapter.md", TMPL_YOUTUBE_CHAPTER),
+    ("general.md", TMPL_GENERAL),
 ];
 
 /// Seed template definitions into the DB as anansi_config notes.

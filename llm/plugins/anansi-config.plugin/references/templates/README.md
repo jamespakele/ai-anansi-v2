@@ -1,6 +1,6 @@
 # Anansi Entity Templates — Authoritative Reference
 
-This directory holds all 30 entity templates used by the anansi plugin to atomize source documents into typed knowledge graph nodes. **This is the single source of truth.** All other copies (vendored under individual skills) are mirrors that need to be re-synced when something here changes.
+This directory holds 39 entity templates used by the anansi plugin to atomize source documents into typed knowledge graph nodes. **This is the single source of truth.** All other copies (vendored under individual skills) are mirrors that need to be re-synced when something here changes.
 
 ---
 
@@ -68,7 +68,7 @@ Seven whole-document container types. All `atomic: false`. Each gets decomposed 
 
 ### `content_unit` — convergence templates with floors
 
-Eight templates representing bounded units of meaning where many people and organizations converge (a topic discussion, a chapter, an exchange). Most carry a `floor_prompt` field that drives the decomposition.
+Ten templates representing bounded units of meaning where many people and organizations converge (a topic discussion, a chapter, an exchange). Most carry a `floor_prompt` field that drives the decomposition.
 
 From `meeting-topic-discussion.md`:
 
@@ -85,6 +85,7 @@ From `meeting-topic-discussion.md`:
 | `research-section.md` | true | Atomization floor for research papers |
 | `company-update-item.md` | true | Atomization floor for company updates |
 | `youtube-chapter.md` | true | Atomization floor for YouTube videos |
+| `general.md` | true | Atomization floor for `generic_prose` sources (unstructured prose split on topic shifts — transcripts without chapter markers beyond the youtube-chapter fallback, essays, letters, pasted notes) |
 
 ### `utility` — flexible glue
 
